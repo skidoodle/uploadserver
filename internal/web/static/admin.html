@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta name="color-scheme" content="dark light" />
+        <link
+            rel="icon"
+            href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+        />
+        <title>uploadserver admin</title>
+        {{if .LoggedIn}}
+        <link rel="stylesheet" href="/_/admin.css" />
+        {{else}}
+        <link rel="stylesheet" href="/_/login.css" />
+        {{end}}
+    </head>
+
+    <body>
+        <h1>uploadserver</h1>
+        {{if .LoggedIn}} {{template "dashboard" .}}
+        <script src="/_/admin.js"></script>
+        {{else}} {{template "login" .}}
+        <script src="/_/login.js"></script>
+        {{end}}
+    </body>
+</html>

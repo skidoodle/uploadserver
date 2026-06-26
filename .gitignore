@@ -1,0 +1,9 @@
+/dist/
+/uploadserver
+/uploadserver.exe
+/data/
+/state/
+tokens.db
+tokens.json
+.DS_Store
+*.swp

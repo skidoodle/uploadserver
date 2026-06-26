@@ -1,0 +1,522 @@
+:root {
+    color-scheme: dark light;
+    scrollbar-gutter: stable;
+
+    --border-color: color-mix(in srgb, CanvasText 30%, transparent);
+    --border-color-table: color-mix(in srgb, CanvasText 20%, transparent);
+    --border-color-fieldset: color-mix(in srgb, CanvasText 22%, transparent);
+    --border-color-opts: color-mix(in srgb, CanvasText 12%, transparent);
+
+    --focus-ring: color-mix(in srgb, CanvasText 35%, transparent);
+
+    --hover-bg: color-mix(in srgb, CanvasText 8%, Canvas);
+    --active-bg: color-mix(in srgb, CanvasText 16%, Canvas);
+    --table-hover-bg: color-mix(in srgb, CanvasText 6%, Canvas);
+    --th-bg: color-mix(in srgb, CanvasText 10%, Canvas);
+
+    --danger-color: tomato;
+    --danger-border: color-mix(in srgb, var(--danger-color) 45%, transparent);
+}
+
+body {
+    font-family:
+        system-ui,
+        -apple-system,
+        sans-serif;
+    max-width: 1060px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+}
+
+h1 {
+    font-size: 1.25rem;
+    margin: 0 0 0.25rem;
+}
+
+input,
+button {
+    font: inherit;
+    padding: 0.45rem 0.6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: Field;
+    color: FieldText;
+}
+
+input {
+    &:focus {
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 1px;
+    }
+
+    &:disabled {
+        opacity: 0.55;
+        cursor: default;
+        filter: none;
+    }
+
+    &.invalid {
+        border-color: var(--danger-color) !important;
+
+        &:focus {
+            outline: 2px solid var(--danger-color) !important;
+        }
+    }
+}
+
+button {
+    cursor: pointer;
+    background: ButtonFace;
+    color: ButtonText;
+
+    &:hover {
+        filter: brightness(1.12);
+    }
+
+    &:active {
+        filter: brightness(0.95);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 1px;
+    }
+}
+
+.csel {
+    position: relative;
+    display: inline-block;
+    min-width: 9.5rem;
+
+    .csel-btn {
+        font: inherit;
+        padding: 0.45rem 0.6rem;
+        padding-right: 2rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: Field;
+        color: FieldText;
+        cursor: pointer;
+        width: 100%;
+        text-align: left;
+        position: relative;
+
+        &::after {
+            content: "";
+            position: absolute;
+            right: 0.65rem;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0.72em;
+            height: 0.72em;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 6l5 5 5-5" fill="none" stroke="%23888" stroke-width="2"/></svg>') no-repeat center/contain;
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 1px;
+        }
+    }
+
+    &.open .csel-opts {
+        display: block;
+    }
+
+    .csel-opts {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin-top: 2px;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: Field;
+        color: FieldText;
+        z-index: 10;
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+
+    .csel-opt {
+        padding: 0.45rem 0.6rem;
+        cursor: pointer;
+        font: inherit;
+
+        &:hover {
+            background: var(--hover-bg);
+        }
+
+        &.active {
+            background: var(--active-bg);
+            font-weight: 600;
+        }
+
+        &+.csel-opt {
+            border-top: 1px solid var(--border-color-opts);
+        }
+    }
+}
+
+.act {
+    font-size: 0.8rem;
+    padding: 0.28rem 0.6rem;
+    border-radius: 5px;
+}
+
+.danger {
+    color: var(--danger-color);
+    background: transparent;
+    border-color: var(--danger-border);
+
+    &:hover {
+        background: var(--danger-color);
+        color: #fff;
+        border-color: var(--danger-color);
+        filter: none;
+    }
+}
+
+dialog {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: Canvas;
+    color: CanvasText;
+    padding: 1.1rem 1.2rem;
+    max-width: 26rem;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+
+    &::backdrop {
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+    p {
+        margin: 0 0 1rem;
+    }
+}
+
+#limdlg {
+    max-width: 34rem;
+    padding: 1.2rem 1.4rem;
+}
+
+.quota-err {
+    min-height: 1.25rem;
+    margin: 0 0 0.6rem;
+    color: var(--danger-color);
+    font-size: 0.85rem;
+    line-height: 1.25rem;
+}
+
+.exempt .lim-grid {
+    opacity: 0.5;
+}
+
+.lim-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem 0.8rem;
+    margin: 0 0 0.6rem;
+
+    label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.82rem;
+        color: GrayText;
+    }
+
+    input {
+        width: 100%;
+        box-sizing: border-box;
+    }
+}
+
+.lim-hint {
+    font-size: 0.8rem;
+    margin: 0 0 1rem;
+}
+
+.bar .lim-hint {
+    margin: 0;
+}
+
+.lim-check {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    margin: 0 0 0.6rem;
+
+    input {
+        width: auto;
+        margin: 0;
+    }
+}
+
+.quota-details {
+    border: 1px solid var(--border-color-fieldset);
+    border-radius: 8px;
+    margin: 0 0 1rem;
+    padding: 0 0.8rem;
+}
+
+.quota-details>summary {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    padding: 0.6rem 0.2rem;
+    cursor: pointer;
+    list-style: none;
+    color: GrayText;
+    font-size: 0.85rem;
+
+    &::-webkit-details-marker {
+        display: none;
+    }
+
+    &::after {
+        content: "";
+        margin-left: auto;
+        align-self: center;
+        width: 0.72em;
+        height: 0.72em;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 6l5 5 5-5" fill="none" stroke="%23888" stroke-width="2"/></svg>') no-repeat center/contain;
+        transition: transform 0.15s ease;
+    }
+}
+
+.quota-details[open]>summary {
+    border-bottom: 1px solid var(--border-color-fieldset);
+    margin-bottom: 0.6rem;
+
+    &::after {
+        transform: rotate(180deg);
+    }
+}
+
+.quota-details .q-sum {
+    color: CanvasText;
+}
+
+.quota-details>form {
+    padding: 0 0.2rem 0.6rem;
+}
+
+.srow {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 0.45rem;
+}
+
+fieldset {
+    border: 1px solid var(--border-color-fieldset);
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem 0.8rem;
+    margin: 0 0 1rem;
+}
+
+legend {
+    padding: 0 0.4rem;
+    color: GrayText;
+    font-size: 0.85rem;
+}
+
+.bar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.bar-end {
+    justify-content: flex-end;
+}
+
+#limdlg .bar-end button {
+    flex: 1;
+}
+
+.form-inline {
+    display: inline;
+}
+
+.label-err {
+    color: var(--danger-color);
+    font-size: 0.85rem;
+    margin-top: 0.45rem;
+}
+
+table {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    border: 1px solid var(--border-color-table);
+    border-radius: 8px;
+    overflow: hidden;
+    table-layout: fixed;
+
+    th,
+    td {
+        border-bottom: 1px solid var(--border-color-table);
+        border-right: 1px solid var(--border-color-table);
+        padding: 0.45rem 0.6rem;
+        text-align: left;
+        height: 2.5rem;
+        vertical-align: middle;
+        box-sizing: border-box;
+
+        &:last-child {
+            border-right: none;
+        }
+    }
+
+    tbody {
+        tr {
+            &:last-child td {
+                border-bottom: none;
+            }
+
+            &:hover {
+                background: var(--table-hover-bg);
+            }
+
+            &.off td {
+                color: GrayText;
+            }
+        }
+    }
+
+    th {
+        background: var(--th-bg);
+        font-weight: 600;
+        text-align: center;
+    }
+
+    td {
+        text-align: center;
+    }
+
+    td.actions {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    th:nth-child(1),
+    td:nth-child(1) {
+        width: 6rem;
+    }
+
+    th:nth-child(3),
+    td:nth-child(3) {
+        width: 4.5rem;
+    }
+
+    th:nth-child(4),
+    td:nth-child(4) {
+        width: 4.5rem;
+    }
+
+    th:nth-child(5),
+    td:nth-child(5) {
+        width: 10rem;
+    }
+
+    th:nth-child(6),
+    td:nth-child(6) {
+        width: 10rem;
+    }
+
+    th:nth-child(7),
+    td:nth-child(7) {
+        width: 10rem;
+    }
+
+    th.actions,
+    td.actions {
+        width: 13.5rem;
+    }
+}
+
+td.usage {
+    font-size: 0.82rem;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+.u-line {
+    display: block;
+}
+
+.act-bar {
+    display: inline-flex;
+    gap: 0.4rem;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    vertical-align: middle;
+}
+
+.mono,
+code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+code {
+    background: color-mix(in srgb, CanvasText 12%, Canvas);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+}
+
+.dim {
+    color: GrayText;
+}
+
+.secret {
+    background: color-mix(in srgb, gold 16%, Canvas);
+    border: 1px solid color-mix(in srgb, gold 55%, Canvas);
+    padding: 0.7rem 0.8rem;
+    border-radius: 8px;
+    margin: 0.8rem 0;
+    position: relative;
+
+    .mono {
+        display: inline-block;
+        margin: 0.3rem 0.5rem 0.3rem 0;
+        word-break: break-all;
+    }
+}
+
+.secret-close {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.5rem;
+    background: none;
+    border: none;
+    color: CanvasText;
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    opacity: 0.6;
+
+    &:hover {
+        opacity: 1;
+        background: color-mix(in srgb, CanvasText 12%, transparent);
+    }
+}
+
+#msg {
+    min-height: 1.2em;
+    color: GrayText;
+}
+
+.err {
+    color: var(--danger-color);
+}

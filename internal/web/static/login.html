@@ -1,0 +1,13 @@
+<fieldset>
+    <legend>session</legend>
+    <form method="POST" action="/login" class="bar">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input name="token" type="password" placeholder="admin token" size="44" autocomplete="off" autofocus>
+        <button type="submit">Log in</button>
+    </form>
+</fieldset>
+{{if .Error}}
+<p id="msg" class="err">{{.Error}}</p>
+{{else}}
+<p id="msg">enter your admin token to begin</p>
+{{end}}

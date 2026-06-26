@@ -1,0 +1,25 @@
+services:
+  uploadserver:
+    container_name: uploadserver
+    image: ghcr.io/skidoodle/uploadserver:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - LISTEN_ADDR=:8080
+      - UPLOAD_DIR=/data
+      - TOKEN_STORE=/state/tokens.db
+      - BASE_URL=http://localhost:8080
+      - UPLOAD_FIELD=file
+      - ENABLE_ADMIN=true
+      - MAX_UPLOAD_BYTES=1073741824
+      - STRIP_EXTENSION=true
+      - RANDOM_NAME_LENGTH=8
+      - SERVE_FILES=false
+    volumes:
+      - data:/data
+      - state:/state
+
+volumes:
+  state:
+  data:

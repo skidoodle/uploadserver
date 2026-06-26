@@ -1,0 +1,85 @@
+:root {
+    color-scheme: dark light;
+    scrollbar-gutter: stable;
+
+    --border-color: color-mix(in srgb, CanvasText 30%, transparent);
+    --border-color-fieldset: color-mix(in srgb, CanvasText 22%, transparent);
+    --focus-ring: color-mix(in srgb, CanvasText 35%, transparent);
+    --danger-color: tomato;
+}
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    max-width: 1060px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    line-height: 1.5;
+}
+
+h1 {
+    font-size: 1.25rem;
+    margin: 0 0 .25rem;
+}
+
+input,
+button {
+    font: inherit;
+    padding: .45rem .6rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: Field;
+    color: FieldText;
+}
+
+input:focus {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+}
+
+button {
+    cursor: pointer;
+    background: ButtonFace;
+    color: ButtonText;
+}
+
+button:hover {
+    filter: brightness(1.12);
+}
+
+button:active {
+    filter: brightness(.95);
+}
+
+button:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+}
+
+fieldset {
+    border: 1px solid var(--border-color-fieldset);
+    border-radius: 8px;
+    padding: .6rem .8rem .8rem;
+    margin: 0 0 1rem;
+}
+
+legend {
+    padding: 0 .4rem;
+    color: GrayText;
+    font-size: .85rem;
+}
+
+.bar {
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+#msg {
+    min-height: 1.2em;
+    color: GrayText;
+}
+
+.err {
+    color: var(--danger-color);
+}

@@ -1,0 +1,14 @@
+{
+  "Version": "17.0.0",
+  "Name": "uploadserver",
+  "DestinationType": "ImageUploader, TextUploader, FileUploader",
+  "RequestMethod": "POST",
+  "RequestURL": "https://u.example.com/",
+  "Headers": {
+    "Authorization": "Bearer YOUR_TOKEN_HERE"
+  },
+  "Body": "MultipartFormData",
+  "FileFormName": "file",
+  "URL": "{response}",
+  "ErrorMessage": "{response}"
+}

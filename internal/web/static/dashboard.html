@@ -1,0 +1,145 @@
+<fieldset>
+    <legend>session</legend>
+    <div class="bar">
+        <input type="password" value="secured" disabled size="44">
+        <form method="POST" action="/logout" class="form-inline">
+            <input type="hidden" name="_csrf" value="{{.CSRF}}">
+            <button type="submit">Log out</button>
+        </form>
+    </div>
+</fieldset>
+{{if .Error}}
+<p id="msg" class="err">{{.Error}}</p>
+{{else}}
+<p id="msg">{{.Count}} token(s)</p>
+{{end}}
+<fieldset>
+    <legend>create token</legend>
+    <form method="POST" action="/tokens/create" class="bar">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input name="label" placeholder="label (e.g. laptop)" required
+            pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
+            title="1-9 characters. Must start and end with a letter or number. Can contain underscores or hyphens in the middle.">
+        <div class="csel" id="roleSel">
+            <button type="button" class="csel-btn" id="roleBtn">role: upload</button>
+            <div class="csel-opts" id="roleOpts">
+                <div class="csel-opt active" data-value="upload">role: upload</div>
+                <div class="csel-opt" data-value="admin">role: admin</div>
+            </div>
+        </div>
+        <input type="hidden" name="role" id="role" value="upload">
+        <button type="submit">Create</button>
+    </form>
+    <div id="label-err" class="label-err" hidden></div>
+</fieldset>
+<details class="quota-details">
+    <summary>
+        <span>global quota</span>
+        <span class="q-sum">{{with summary .Global}}{{.}}{{else}}none &#8212; uploads unlimited by default{{end}}</span>
+    </summary>
+    <form method="POST" action="/global/limits" id="globalForm">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <div class="lim-grid">
+            <label>Total size<input name="max_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"
+                    value="{{with .Global.MaxBytes}}{{humanBytes .}}{{end}}"></label>
+            <label>Total uploads<input name="max_uploads" data-kind="count" placeholder="unlimited" autocomplete="off"
+                    value="{{with .Global.MaxUploads}}{{.}}{{end}}"></label>
+            <label>Monthly size<input name="monthly_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"
+                    value="{{with .Global.MonthlyBytes}}{{humanBytes .}}{{end}}"></label>
+            <label>Monthly uploads<input name="monthly_uploads" data-kind="count" placeholder="unlimited"
+                    autocomplete="off" value="{{with .Global.MonthlyUploads}}{{.}}{{end}}"></label>
+        </div>
+        <div id="global-err" class="quota-err"></div>
+        <div class="bar">
+            <button type="submit">Save global quota</button>
+            <span class="dim lim-hint">Applies to every token, unless it sets its own caps or is exempt.</span>
+        </div>
+    </form>
+</details>
+{{if .Secret}}
+<div class="secret">
+    <button type="button" class="secret-close" title="Dismiss">&times;</button>
+    New {{.Secret.Role}} token <code>{{.Secret.ID}}</code> &#8212; shown once:
+    <div class="srow">
+        <span id="sv" class="mono">{{.Secret.Secret}}</span>
+        <button type="button" id="cp" class="act">Copy</button>
+    </div>
+</div>
+{{end}}
+<table>
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Label</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Last used</th>
+            <th>Usage</th>
+            <th class="actions">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Tokens}}
+        <tr{{if .Disabled}} class="off" {{end}}>
+            <td><code>{{.ID}}</code></td>
+            <td>{{.Label}}</td>
+            <td>{{.Role}}</td>
+            <td>{{if .Disabled}}disabled{{else}}active{{end}}</td>
+            <td>{{fmtDate .CreatedAt}}</td>
+            <td>{{with fmtDate .LastUsed}}{{.}}{{else}}<span class="dim">never</span>{{end}}</td>
+            <td class="usage">{{$eff := effective .Limits $.Global .BypassesGlobal}}{{if or .Usage.Uploads $eff.Any
+                .Bypass}}<span class="u-line">{{comma .Usage.Uploads}}{{if $eff.MaxUploads}} <span class="dim">/ {{comma
+                        $eff.MaxUploads}}</span>{{else if .Bypass}} <span class="dim">/ ∞</span>{{end}} uploads</span><span class="u-line dim">{{humanBytes
+                    .Usage.Bytes}}{{if $eff.MaxBytes}} / {{humanBytes $eff.MaxBytes}}{{else if .Bypass}} / ∞{{end}}</span>{{else}}<span class="dim">none</span>{{end}}</td>
+            <td class="actions">{{if ne .Role "root"}}<div class="act-bar">
+                    <button type="button" class="act" data-limit-id="{{.ID}}"
+                        data-max-bytes="{{with .Limits.MaxBytes}}{{humanBytes .}}{{end}}"
+                        data-max-uploads="{{with .Limits.MaxUploads}}{{.}}{{end}}"
+                        data-monthly-bytes="{{with .Limits.MonthlyBytes}}{{humanBytes .}}{{end}}"
+                        data-monthly-uploads="{{with .Limits.MonthlyUploads}}{{.}}{{end}}"
+                        data-bypass="{{if .Bypass}}1{{end}}">Limits</button>
+                    <form method="POST" action="/tokens/{{.ID}}/toggle" class="form-inline"><input type="hidden"
+                            name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="disable"
+                            value="{{if .Disabled}}false{{else}}true{{end}}"><button class="act" type="submit">{{if
+                            .Disabled}}Enable{{else}}Disable{{end}}</button></form><button type="button"
+                        class="act danger" data-delete-id="{{.ID}}">Delete</button>
+                </div>{{end}}</td>
+            </tr>
+            {{end}}
+    </tbody>
+</table>
+<dialog id="dlg">
+    <form method="POST" id="dlgForm" action="">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <p id="dlgmsg"></p>
+        <div class="bar bar-end">
+            <button type="button" data-cancel>Cancel</button>
+            <button type="submit" class="danger">Delete</button>
+        </div>
+    </form>
+</dialog>
+<dialog id="limdlg">
+    <form method="POST" id="limForm" action="">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <p>Quotas for <code id="limTarget"></code></p>
+        <div class="lim-grid">
+            <label>Total size<input name="max_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"></label>
+            <label>Total uploads<input name="max_uploads" data-kind="count" placeholder="unlimited"
+                    autocomplete="off"></label>
+            <label>Monthly size<input name="monthly_bytes" data-kind="size" placeholder="unlimited"
+                    autocomplete="off"></label>
+            <label>Monthly uploads<input name="monthly_uploads" data-kind="count" placeholder="unlimited"
+                    autocomplete="off"></label>
+        </div>
+        <label class="lim-check"><input type="checkbox" name="bypass" id="limBypass" value="true"> Exempt this token from
+            all quotas</label>
+        <p class="dim lim-hint">Blank or 0 means unlimited. Personal caps override the global default; sizes accept
+            units, e.g. 500MB or 5GB.</p>
+        <div id="lim-err" class="quota-err"></div>
+        <div class="bar bar-end">
+            <button type="button" data-cancel>Cancel</button>
+            <button type="submit">Save</button>
+        </div>
+    </form>
+</dialog>
