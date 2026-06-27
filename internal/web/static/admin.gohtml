@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" />
-    <title>uploadserver admin</title>
+    <title>{{if .LoggedIn}}uploadserver · admin{{else}}uploadserver{{end}}</title>
     {{if .LoggedIn}}
     <link rel="stylesheet" href="/_/admin.css" />
     {{else}}
