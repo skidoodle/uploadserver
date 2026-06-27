@@ -7,13 +7,13 @@ import (
 	"uploadserver/internal"
 )
 
-//go:embed static/admin.html
+//go:embed static/admin.gohtml
 var adminHTML string
 
-//go:embed static/login.html
+//go:embed static/login.gohtml
 var loginHTML string
 
-//go:embed static/dashboard.html
+//go:embed static/dashboard.gohtml
 var dashboardHTML string
 
 //go:embed static/login.css static/login.js static/admin.css static/admin.js
