@@ -61,8 +61,10 @@
     <button type="button" class="secret-close" title="Dismiss">&times;</button>
     New {{.Secret.Role}} token <code>{{.Secret.ID}}</code> &#8212; shown once:
     <div class="srow">
-        <span id="sv" class="mono">{{.Secret.Secret}}</span>
+        <span id="sv" class="mono blurred">{{.Secret.Secret}}</span>
+        <button type="button" id="reveal" class="act" title="Reveal token">Show</button>
         <button type="button" id="cp" class="act">Copy</button>
+        <button type="button" id="dl-sxcu" class="act" data-token-id="{{.Secret.ID}}">Download .sxcu</button>
     </div>
 </div>
 {{end}}

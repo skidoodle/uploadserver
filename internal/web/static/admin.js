@@ -132,12 +132,59 @@ class AdminDashboard {
       .querySelector(".secret-close")
       ?.addEventListener("click", () => card.remove());
 
-    const copyButton = document.getElementById("cp");
     const secretValue = document.getElementById("sv");
+
+    const revealButton = document.getElementById("reveal");
+    revealButton?.addEventListener("click", () => {
+      const isBlurred = secretValue.classList.toggle("blurred");
+      revealButton.textContent = isBlurred ? "Show" : "Hide";
+    });
+
+    secretValue?.addEventListener("click", () => {
+      if (secretValue.classList.contains("blurred")) {
+        secretValue.classList.remove("blurred");
+        if (revealButton) revealButton.textContent = "Hide";
+      }
+    });
+
+    const copyButton = document.getElementById("cp");
     copyButton?.addEventListener("click", () => {
       navigator.clipboard.writeText(secretValue.textContent).then(() => {
         copyButton.textContent = "Copied";
+        setTimeout(() => (copyButton.textContent = "Copy"), 1500);
       });
+    });
+
+    const dlButton = document.getElementById("dl-sxcu");
+    dlButton?.addEventListener("click", () => {
+      const tokenId = dlButton.dataset.tokenId;
+      const secret = secretValue.textContent;
+      const requestUrl = window.location.origin + "/";
+      const sxcu = {
+        Version: "17.0.0",
+        Name: "uploadserver",
+        DestinationType: "ImageUploader, TextUploader, FileUploader",
+        RequestMethod: "POST",
+        RequestURL: requestUrl,
+        Headers: {
+          Authorization: "Bearer " + secret,
+        },
+        Body: "MultipartFormData",
+        FileFormName: "file",
+        URL: "{response}",
+        ErrorMessage: "{response}",
+      };
+      const blob = new Blob([JSON.stringify(sxcu, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = tokenId + ".sxcu";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     });
   }
 
