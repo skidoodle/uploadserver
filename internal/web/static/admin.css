@@ -489,6 +489,13 @@ code {
         display: inline-block;
         margin: 0.3rem 0.5rem 0.3rem 0;
         word-break: break-all;
+        transition: filter 0.2s ease;
+    }
+
+    .mono.blurred {
+        filter: blur(6px);
+        user-select: none;
+        cursor: pointer;
     }
 }
 
