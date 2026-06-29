@@ -1,7 +1,6 @@
 package web
 
 import (
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -20,10 +19,7 @@ func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("POST /{$}", s.handleUpload)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, "ok\n")
-	})
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
 
 	if s.cfg.ServeFiles {
 		mux.HandleFunc("GET /", s.handleFileServer)
@@ -112,4 +108,15 @@ func (s *server) announce(secret string, created bool) {
 	if s.cfg.ServeFiles {
 		log.Printf("serving uploads at GET /")
 	}
+}
+
+// handleHealthz checks the database store status and returns HTTP 200/500.
+func (s *server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	if err := s.store.Ping(); err != nil {
+		log.Printf("health check failed: %v", err)
+		http.Error(w, "database unhealthy", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok\n"))
 }

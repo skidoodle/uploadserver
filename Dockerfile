@@ -18,5 +18,6 @@ COPY --chown=1000:1000 --from=build /skel/state /state
 COPY --from=build /uploadserver /uploadserver
 EXPOSE 8080
 ENV LISTEN_ADDR=":8080" UPLOAD_DIR="/data" TOKEN_STORE="/state/tokens.db"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD ["/uploadserver", "healthcheck"]
 ENTRYPOINT ["/uploadserver"]
 CMD ["run"]

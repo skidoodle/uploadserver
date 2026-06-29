@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"uploadserver/internal"
 	"uploadserver/internal/web"
 )
@@ -22,6 +24,26 @@ func main() {
 		if err := web.Run(); err != nil {
 			log.Fatal(err)
 		}
+	case "healthcheck":
+		addr := os.Getenv("LISTEN_ADDR")
+		if addr == "" {
+			addr = ":8080"
+		}
+		// If listening on all interfaces (e.g. ":8080" or "0.0.0.0:8080"), request localhost.
+		if strings.HasPrefix(addr, ":") {
+			addr = "localhost" + addr
+		} else if strings.HasPrefix(addr, "0.0.0.0:") {
+			addr = "localhost:" + strings.TrimPrefix(addr, "0.0.0.0:")
+		}
+		resp, err := http.Get("http://" + addr + "/healthz")
+		if err != nil {
+			log.Fatalf("healthcheck query failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			log.Fatalf("healthcheck failed with status %d", resp.StatusCode)
+		}
+		os.Exit(0)
 	case "list", "add", "rm", "disable", "enable", "limit", "global", "dump", "reset":
 		if err := internal.RunTokenCLI(os.Args[1:]); err != nil {
 			log.Fatal(err)

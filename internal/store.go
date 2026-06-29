@@ -411,3 +411,11 @@ func (s *TokenStore) Bootstrap() (secret string, created bool, err error) {
 	}
 	return secret, true, nil
 }
+
+// Ping checks if the database is open and responsive.
+func (s *TokenStore) Ping() error {
+	return s.db.View(func(tx *bolt.Tx) error {
+		_ = tx.Bucket(tokenBucket).Stats()
+		return nil
+	})
+}
