@@ -32,8 +32,8 @@ func main() {
 		// If listening on all interfaces (e.g. ":8080" or "0.0.0.0:8080"), request localhost.
 		if strings.HasPrefix(addr, ":") {
 			addr = "localhost" + addr
-		} else if strings.HasPrefix(addr, "0.0.0.0:") {
-			addr = "localhost:" + strings.TrimPrefix(addr, "0.0.0.0:")
+		} else if after, ok := strings.CutPrefix(addr, "0.0.0.0:"); ok {
+			addr = "localhost:" + after
 		}
 		resp, err := http.Get("http://" + addr + "/healthz")
 		if err != nil {
