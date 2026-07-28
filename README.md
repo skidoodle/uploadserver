@@ -14,7 +14,11 @@ It picked up a few things along the way like token auth so I can hand out
 separate keys, quotas so one key can't eat the whole disk, and a small admin
 page to manage all of it.
 
-![Demo](demo.jpg)
+| Admin Dashboard | File Browser & Search |
+| :---: | :---: |
+| ![Admin Dashboard](.github/assets/admin.png) | ![File Browser](.github/assets/file_browser.png) |
+| **Token Creation & Management** | **User Profile & Quotas** |
+| ![Token Creation](.github/assets/new_user.png) | ![User Profile](.github/assets/user.png) |
 
 ## Installation
 
@@ -107,6 +111,36 @@ Commands:
 
 `limit` also has `--bypass` to exempt a token from all quotas and `--clear` to
 wipe its caps. Only the flags you pass get changed.
+
+### Running CLI commands with Docker
+
+Because `uploadserver` holds an exclusive database lock while running, CLI commands (`scan`, `add`, `limit`, etc.) must be run in a temporary container while the main server container is stopped.
+
+**With Docker Compose:**
+
+```sh
+# Stop the server container to release the database lock
+docker compose stop uploadserver
+
+# Run any CLI command (e.g. scan)
+docker compose run --rm uploadserver scan
+
+# Restart the server container
+docker compose start uploadserver
+```
+
+**With plain Docker:**
+
+```sh
+# Stop the main container
+docker stop uploadserver
+
+# Run the CLI command in a temporary container sharing volumes
+docker run --rm --volumes-from uploadserver ghcr.io/skidoodle/uploadserver:latest scan
+
+# Restart the main container
+docker start uploadserver
+```
 
 ### Scanning for untracked files
 
