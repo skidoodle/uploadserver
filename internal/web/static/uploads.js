@@ -39,42 +39,100 @@
   const summary = document.getElementById('pagerSummary');
   const controls = document.getElementById('pagerControls');
   const pagerBar = document.getElementById('pagerBar');
+  const searchInput = document.getElementById('searchInput');
+  const searchClear = document.getElementById('searchClear');
+  const emptySearch = document.getElementById('emptySearch');
+  const searchQueryText = document.getElementById('searchQueryText');
 
-  if (!list || !controls || !pagerBar) return;
+  if (!list) return;
 
-  const rows = Array.from(list.querySelectorAll('[data-page-item]'));
-  const total = rows.length;
-  const pages = Math.ceil(total / PER_PAGE);
+  const allRows = Array.from(list.querySelectorAll('[data-page-item]'));
+  const totalFiles = allRows.length;
+  let matchingRows = allRows;
   let current = 1;
 
-  if (total <= PER_PAGE) {
-    pagerBar.style.display = 'none';
-    return;
+  function filterRows() {
+    const rawVal = searchInput ? searchInput.value : '';
+    const q = rawVal.trim().toLowerCase();
+
+    if (searchClear) {
+      searchClear.hidden = !q;
+    }
+
+    if (!q) {
+      matchingRows = allRows;
+      if (emptySearch) emptySearch.hidden = true;
+    } else {
+      matchingRows = allRows.filter(row => {
+        const name = (row.dataset.fullName || '').toLowerCase();
+        const ext = (row.dataset.ext || '').toLowerCase();
+        return name.includes(q) || ext.includes(q);
+      });
+
+      if (emptySearch) {
+        if (matchingRows.length === 0) {
+          if (searchQueryText) searchQueryText.textContent = rawVal;
+          emptySearch.hidden = false;
+        } else {
+          emptySearch.hidden = true;
+        }
+      }
+    }
+
+    allRows.forEach(row => { row.hidden = true; });
+
+    current = 1;
+    showPage(1);
   }
 
-  function show(page) {
+  function showPage(page) {
     current = page;
+    const totalMatching = matchingRows.length;
+    const totalPages = Math.ceil(totalMatching / PER_PAGE);
+
     const start = (page - 1) * PER_PAGE;
     const end = start + PER_PAGE;
-    rows.forEach((row, i) => {
+
+    matchingRows.forEach((row, i) => {
       row.hidden = i < start || i >= end;
     });
-    render();
+
+    renderPager(totalMatching, totalPages);
   }
 
-  function render() {
+  function renderPager(totalMatching, totalPages) {
+    if (!pagerBar || !summary || !controls) return;
+
+    if (totalFiles === 0 || totalMatching === 0) {
+      pagerBar.style.display = 'none';
+      return;
+    }
+
+    const q = searchInput ? searchInput.value.trim() : '';
+
+    if (totalFiles <= PER_PAGE && !q) {
+      pagerBar.style.display = 'none';
+      return;
+    }
+
+    pagerBar.style.display = '';
+
     const startNum = (current - 1) * PER_PAGE + 1;
-    const endNum = Math.min(current * PER_PAGE, total);
-    if (summary) {
-      summary.innerHTML = `Showing <strong>${startNum}–${endNum}</strong> of <strong>${total}</strong> files`;
+    const endNum = Math.min(current * PER_PAGE, totalMatching);
+
+    if (q) {
+      summary.innerHTML = `Showing <strong>${startNum}–${endNum}</strong> of <strong>${totalMatching}</strong> matching file${totalMatching !== 1 ? 's' : ''} (filtered from ${totalFiles})`;
+    } else {
+      summary.innerHTML = `Showing <strong>${startNum}–${endNum}</strong> of <strong>${totalFiles}</strong> files`;
     }
 
     controls.innerHTML = '';
+    if (totalPages <= 1) return;
 
-    const prev = btn('‹ Prev', current > 1, () => show(current - 1));
+    const prev = btn('‹ Prev', current > 1, () => showPage(current - 1));
     controls.appendChild(prev);
 
-    const visible = pageRange(current, pages);
+    const visible = pageRange(current, totalPages);
     let last = 0;
     for (const p of visible) {
       if (p - last > 1) {
@@ -83,13 +141,13 @@
         dots.textContent = '…';
         controls.appendChild(dots);
       }
-      const b = btn(String(p), true, () => show(p));
+      const b = btn(String(p), true, () => showPage(p));
       if (p === current) b.classList.add('active');
       controls.appendChild(b);
       last = p;
     }
 
-    const next = btn('Next ›', current < pages, () => show(current + 1));
+    const next = btn('Next ›', current < totalPages, () => showPage(current + 1));
     controls.appendChild(next);
   }
 
@@ -113,5 +171,31 @@
     return [1, ...range, max];
   }
 
-  show(1);
+  if (searchInput) {
+    searchInput.addEventListener('input', filterRows);
+
+    if (searchClear) {
+      searchClear.addEventListener('click', () => {
+        searchInput.value = '';
+        searchInput.focus();
+        filterRows();
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === '/' && document.activeElement !== searchInput && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        e.preventDefault();
+        searchInput.focus();
+      } else if (e.key === 'Escape' && document.activeElement === searchInput) {
+        if (searchInput.value) {
+          searchInput.value = '';
+          filterRows();
+        } else {
+          searchInput.blur();
+        }
+      }
+    });
+  }
+
+  filterRows();
 })();
