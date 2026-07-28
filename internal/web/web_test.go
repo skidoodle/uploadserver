@@ -555,7 +555,8 @@ func TestUserUploadsRoute(t *testing.T) {
 	id, secret := createUploadToken(t, h, admin, "mytoken")
 
 	// Perform an upload
-	if up := upload(t, h, secret, "file", "test.png", "imgdata"); up.Code != http.StatusOK {
+	up := upload(t, h, secret, "file", "test.png", "imgdata")
+	if up.Code != http.StatusOK {
 		t.Fatalf("upload failed: %d", up.Code)
 	}
 
@@ -575,7 +576,16 @@ func TestUserUploadsRoute(t *testing.T) {
 		t.Fatalf("authenticated GET /_/uploads/%s status = %d, want 200", id, rec.Code)
 	}
 	if !strings.Contains(rec.Body.String(), ".png") {
-		t.Errorf("expected body to contain .png, got: %s", rec.Body.String())
+		t.Errorf("expected body to contain .png for href/type, got: %s", rec.Body.String())
+	}
+	// Verify that the displayed link text strips the extension
+	upURL := strings.TrimSpace(up.Body.String())
+	entryName := upURL[strings.LastIndex(upURL, "/")+1:]
+	rawExt := filepath.Ext(entryName)
+	baseName := strings.TrimSuffix(entryName, rawExt)
+	expectedLink := ">" + baseName + "</a>"
+	if !strings.Contains(rec.Body.String(), expectedLink) {
+		t.Errorf("expected body to contain stripped link text %q, got: %s", expectedLink, rec.Body.String())
 	}
 
 	// API request to /api/tokens/{id}/uploads -> 200 OK JSON

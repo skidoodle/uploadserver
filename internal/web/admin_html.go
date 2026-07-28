@@ -101,6 +101,13 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 		}
 		return strings.ToUpper(ext)
 	},
+	"stripExt": func(name string) string {
+		ext := filepath.Ext(name)
+		if ext == "" {
+			return name
+		}
+		return strings.TrimSuffix(name, ext)
+	},
 	"isImage": func(name string) bool {
 		switch strings.ToLower(filepath.Ext(name)) {
 		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".svg":
