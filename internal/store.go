@@ -558,6 +558,69 @@ func (s *TokenStore) RecordUploadEntry(tokenID string, entry UploadEntry) error 
 	})
 }
 
+// AllUploadEntries returns every upload entry across all tokens, keyed by token
+// ID. The scanner uses this to identify which files on disk are already tracked.
+func (s *TokenStore) AllUploadEntries() (map[string][]UploadEntry, error) {
+	out := make(map[string][]UploadEntry)
+	err := s.db.View(func(tx *bolt.Tx) error {
+		return tx.Bucket(uploadBucket).ForEach(func(k, v []byte) error {
+			var entries []UploadEntry
+			if json.Unmarshal(v, &entries) == nil {
+				out[string(k)] = entries
+			}
+			return nil
+		})
+	})
+	return out, err
+}
+
+// ImportUploadEntries appends upload entries to the given token, updating its
+// usage counters to reflect the imported files. The token must already exist.
+// This is used by the directory scanner to adopt pre-existing files.
+func (s *TokenStore) ImportUploadEntries(tokenID string, entries []UploadEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		// Verify the token exists.
+		r, err := getRecord(tx, tokenID)
+		if err != nil {
+			return err
+		}
+
+		// Append to upload history.
+		ub := tx.Bucket(uploadBucket)
+		var existing []UploadEntry
+		if v := ub.Get([]byte(tokenID)); v != nil {
+			_ = json.Unmarshal(v, &existing)
+		}
+		existing = append(existing, entries...)
+		data, err := json.Marshal(existing)
+		if err != nil {
+			return err
+		}
+		if err := ub.Put([]byte(tokenID), data); err != nil {
+			return err
+		}
+
+		// Update usage counters so quotas and stats reflect imported files.
+		now := time.Now().UTC()
+		for _, e := range entries {
+			if !samePeriod(r.Usage.Period, now) {
+				r.Usage.MonthUploads = 0
+				r.Usage.MonthBytes = 0
+				r.Usage.Period = now
+			}
+			r.Usage.Uploads++
+			r.Usage.Bytes += e.Size
+			r.Usage.MonthUploads++
+			r.Usage.MonthBytes += e.Size
+		}
+		r.LastUsed = now
+		return putRecord(tx, r)
+	})
+}
+
 // UploadsFor returns all upload entries for a given token, newest first.
 func (s *TokenStore) UploadsFor(tokenID string) ([]UploadEntry, error) {
 	var entries []UploadEntry

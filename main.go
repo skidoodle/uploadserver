@@ -44,7 +44,7 @@ func main() {
 			log.Fatalf("healthcheck failed with status %d", resp.StatusCode)
 		}
 		os.Exit(0)
-	case "list", "add", "rm", "disable", "enable", "limit", "global", "dump", "reset":
+	case "list", "add", "rm", "disable", "enable", "limit", "global", "scan", "dump", "reset":
 		if err := internal.RunTokenCLI(os.Args[1:]); err != nil {
 			log.Fatal(err)
 		}

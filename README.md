@@ -91,6 +91,7 @@ Commands:
   enable <id>                Enable a token
   limit <id> [flags]         Set upload quotas for a token
   global [flags]             Show or set the server-wide default quota
+  scan [--token ID]          Find untracked files on disk and optionally import them
   dump                       Decode the binary store and print everything in it
   reset                      Delete all tokens and reset store
 ```
@@ -106,6 +107,31 @@ Commands:
 
 `limit` also has `--bypass` to exempt a token from all quotas and `--clear` to
 wipe its caps. Only the flags you pass get changed.
+
+### Scanning for untracked files
+
+If you already have files in the upload directory from a previous setup or
+manual copy, `scan` finds them and optionally imports them into a token's
+history so quotas and the admin dashboard reflect the real state of the disk.
+
+```console
+$ uploadserver scan
+found 3 untracked file(s) in ./data:
+
+FILE                              SIZE      MODIFIED
+a1b2c3d4e5f6.png                  1.2 MB    2025-03-14 09:22
+deadbeef1234.jpg                  340 KB    2025-03-15 11:05
+cafebabe5678.mp4                  48.7 MB   2025-04-01 16:30
+
+to import these files, re-run with --token <id>
+```
+
+To adopt them into a token:
+
+```console
+$ uploadserver scan --token a1b2c3d4
+imported 3 file(s) into token a1b2c3d4
+```
 
 ## Configuration
 

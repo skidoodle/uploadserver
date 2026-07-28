@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 )
@@ -21,6 +22,7 @@ Commands:
   enable <id>                Enable a token
   limit <id> [flags]         Set upload quotas for a token (use --help for flags)
   global [flags]             Show or set the server-wide default quota
+  scan [--token ID]          Find untracked files on disk and optionally import them
   dump                       Decode the binary store and print everything in it
   reset                      Delete all tokens and reset store`
 
@@ -122,6 +124,9 @@ func RunTokenCLI(args []string) (err error) {
 
 	case "global":
 		return runGlobal(store, args[1:])
+
+	case "scan":
+		return runScan(store, args[1:])
 
 	default:
 		fmt.Fprintln(os.Stderr, CLIUsage)
@@ -316,4 +321,93 @@ func fmtTime(t time.Time) string {
 		return "-"
 	}
 	return t.Format("2006-01-02 15:04")
+}
+
+// runScan scans UPLOAD_DIR for files not tracked in any token's upload history
+// and optionally imports them into a specific token.
+func runScan(store *TokenStore, args []string) error {
+	fs := flag.NewFlagSet("scan", flag.ContinueOnError)
+	tokenID := fs.String("token", "", "token ID to import untracked files into (omit for dry-run list)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	uploadDir := Env("UPLOAD_DIR", "./data")
+
+	// Read every tracked filename across all tokens.
+	allEntries, err := store.AllUploadEntries()
+	if err != nil {
+		return fmt.Errorf("read upload entries: %w", err)
+	}
+	tracked := make(map[string]bool)
+	for _, entries := range allEntries {
+		for _, e := range entries {
+			tracked[e.Name] = true
+		}
+	}
+
+	// Walk the upload directory.
+	dirEntries, err := os.ReadDir(uploadDir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", uploadDir, err)
+	}
+
+	type untrackedFile struct {
+		name    string
+		size    int64
+		modTime time.Time
+	}
+	var untracked []untrackedFile
+	for _, de := range dirEntries {
+		if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
+			continue
+		}
+		if tracked[de.Name()] {
+			continue
+		}
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+		untracked = append(untracked, untrackedFile{
+			name:    de.Name(),
+			size:    info.Size(),
+			modTime: info.ModTime().UTC(),
+		})
+	}
+
+	if len(untracked) == 0 {
+		fmt.Println("all files on disk are already tracked — nothing to import")
+		return nil
+	}
+
+	fmt.Printf("found %d untracked file(s) in %s:\n\n", len(untracked), uploadDir)
+	tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "FILE\tSIZE\tMODIFIED")
+	for _, f := range untracked {
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", f.name, FormatSize(f.size), fmtTime(f.modTime))
+	}
+	_ = tw.Flush()
+
+	// Dry-run.
+	if *tokenID == "" {
+		fmt.Println("\nto import these files, re-run with --token <id>")
+		return nil
+	}
+
+	// Import into the chosen token.
+	var entries []UploadEntry
+	for _, f := range untracked {
+		entries = append(entries, UploadEntry{
+			Name:       f.name,
+			Size:       f.size,
+			UploadedAt: f.modTime,
+		})
+	}
+
+	if err := store.ImportUploadEntries(*tokenID, entries); err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+	fmt.Printf("\nimported %d file(s) into token %s\n", len(entries), *tokenID)
+	return nil
 }
