@@ -11,8 +11,9 @@ piece in between. It checks a token, writes the upload to disk under a random
 name, and returns the URL.
 
 It picked up a few things along the way like token auth so I can hand out
-separate keys, quotas so one key can't eat the whole disk, and a small admin
-page to manage all of it.
+separate keys, quotas so one key can't eat the whole disk, a built-in file
+browser with instant search, and web dashboard logins for both admins and
+upload users to check their usage or browse their files.
 
 | Admin Dashboard | File Browser & Search |
 | :---: | :---: |
