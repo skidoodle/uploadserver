@@ -22,10 +22,13 @@ class AdminDashboard {
     this.#roleHiddenInput = document.getElementById("role");
 
     this.#initRoleSelector();
+    this.#initContextMenus();
     this.#initLabelValidation();
     this.#initSecretCard();
     this.#initDeleteDialog();
+    this.#initRenameDialog();
     this.#initLimitsDialog();
+    this.#initGiveawayDialog();
     this.#initQuotaForm(
       document.getElementById("globalForm"),
       document.getElementById("global-err"),
@@ -85,43 +88,101 @@ class AdminDashboard {
     });
   }
 
-  #initLabelValidation() {
-    if (!this.#labelInput || !this.#errorContainer || !this.#form) {
-      return;
-    }
+  #initContextMenus() {
+    const closeAll = () => {
+      document.querySelectorAll('.ctx.open').forEach(ctx => {
+        ctx.classList.remove('open');
+      });
+    };
 
-    this.#labelInput.addEventListener("input", () => this.validateLabel());
+    document.querySelectorAll('.ctx').forEach(ctx => {
+      const trigger = ctx.querySelector('.ctx-trigger');
+      const menu = ctx.querySelector('.ctx-menu');
+      if (!trigger || !menu) return;
 
-    this.#form.addEventListener("submit", (event) => {
-      if (!this.validateLabel()) {
-        event.preventDefault();
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = ctx.classList.contains('open');
+        closeAll();
+        if (!isOpen) {
+          ctx.classList.add('open');
+          const rect = trigger.getBoundingClientRect();
+          menu.style.position = 'fixed';
+          menu.style.top = `${rect.bottom + 4}px`;
+          const rightDist = window.innerWidth - rect.right;
+          menu.style.right = `${Math.max(10, rightDist)}px`;
+          menu.style.left = 'auto';
+          menu.style.zIndex = '9999';
+        }
+      });
+
+      menu.querySelectorAll('.ctx-item').forEach(item => {
+        if (item.tagName === 'A' || item.type === 'button') {
+          item.addEventListener('click', () => {
+            closeAll();
+          });
+        }
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.ctx-menu')) {
+        closeAll();
+      }
+    });
+
+    window.addEventListener('scroll', closeAll, true);
+    window.addEventListener('resize', closeAll);
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeAll();
       }
     });
   }
 
+  #initLabelValidation() {
+    this.#setupInPlaceLabelValidation(this.#labelInput, this.#errorContainer, this.#form);
+
+    const inviteInput = document.getElementById("inviteInput");
+    const inviteErr = document.getElementById("invite-err");
+    const inviteForm = document.getElementById("inviteForm");
+    this.#setupInPlaceLabelValidation(inviteInput, inviteErr, inviteForm);
+  }
+
+  #setupInPlaceLabelValidation(input, errorEl, form) {
+    if (!input || !errorEl || !form) return () => true;
+
+    const validate = () => {
+      const val = input.value;
+      if (val === "") {
+        errorEl.hidden = true;
+        input.classList.remove("invalid");
+        return true;
+      }
+      if (!this.#labelPattern.test(val)) {
+        errorEl.textContent = input.title || "1-9 characters. Must start and end with a letter or number.";
+        errorEl.hidden = false;
+        input.classList.add("invalid");
+        return false;
+      }
+      errorEl.hidden = true;
+      input.classList.remove("invalid");
+      return true;
+    };
+
+    input.addEventListener("input", validate);
+    form.addEventListener("submit", (e) => {
+      if (!validate()) {
+        e.preventDefault();
+      }
+    });
+
+    return validate;
+  }
+
   validateLabel() {
-    if (!this.#labelInput || !this.#errorContainer) {
-      return true;
-    }
-
-    const value = this.#labelInput.value;
-
-    if (value === "") {
-      this.#errorContainer.hidden = true;
-      this.#labelInput.classList.remove("invalid");
-      return true;
-    }
-
-    if (!this.#labelPattern.test(value)) {
-      this.#errorContainer.textContent = this.#labelInput.title;
-      this.#errorContainer.hidden = false;
-      this.#labelInput.classList.add("invalid");
-      return false;
-    }
-
-    this.#errorContainer.hidden = true;
-    this.#labelInput.classList.remove("invalid");
-    return true;
+    return this.#setupInPlaceLabelValidation(this.#labelInput, this.#errorContainer, this.#form)();
   }
 
   #initSecretCard() {
@@ -208,6 +269,33 @@ class AdminDashboard {
       ?.addEventListener("click", () => dialog.close());
   }
 
+  #initRenameDialog() {
+    const dialog = document.getElementById("renamedlg");
+    const form = document.getElementById("renameForm");
+    const target = document.getElementById("renameTarget");
+    const input = document.getElementById("renameInput");
+    const errorEl = document.getElementById("rename-err");
+    if (!dialog || !form || !target || !input) return;
+
+    this.#setupInPlaceLabelValidation(input, errorEl, form);
+
+    document.querySelectorAll("button[data-rename-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.renameId;
+        target.textContent = id;
+        input.value = button.dataset.label || "";
+        input.classList.remove("invalid");
+        if (errorEl) errorEl.hidden = true;
+        form.action = `/tokens/${id}/label`;
+        dialog.showModal();
+      });
+    });
+
+    dialog
+      .querySelector("[data-cancel]")
+      ?.addEventListener("click", () => dialog.close());
+  }
+
   #initLimitsDialog() {
     const dialog = document.getElementById("limdlg");
     const form = document.getElementById("limForm");
@@ -231,6 +319,9 @@ class AdminDashboard {
           button.dataset.monthlyBytes || "";
         form.elements["monthly_uploads"].value =
           button.dataset.monthlyUploads || "";
+        if (form.elements["invites"]) {
+          form.elements["invites"].value = button.dataset.invites || "";
+        }
         form.elements["bypass"].checked = button.dataset.bypass === "1";
         this.#resetQuotaForm(form, errorEl);
         this.#applyExemptState(form, errorEl);
@@ -312,6 +403,20 @@ class AdminDashboard {
     if (errorEl) {
       errorEl.textContent = "";
     }
+  }
+
+  #initGiveawayDialog() {
+    const dialog = document.getElementById("giveawaydlg");
+    const button = document.getElementById("giveawayBtn");
+    if (!dialog || !button) return;
+
+    button.addEventListener("click", () => {
+      dialog.showModal();
+    });
+
+    dialog.querySelector("[data-cancel]")?.addEventListener("click", () => {
+      dialog.close();
+    });
   }
 }
 

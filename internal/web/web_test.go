@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -547,4 +548,279 @@ func findCookie(cookies []*http.Cookie, name string) *http.Cookie {
 		}
 	}
 	return nil
+}
+
+func TestUserUploadsRoute(t *testing.T) {
+	_, h, admin := newTestServer(t)
+	id, secret := createUploadToken(t, h, admin, "mytoken")
+
+	// Perform an upload
+	if up := upload(t, h, secret, "file", "test.png", "imgdata"); up.Code != http.StatusOK {
+		t.Fatalf("upload failed: %d", up.Code)
+	}
+
+	// Unauthenticated request to /_/uploads/{id} -> redirect
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/_/uploads/"+id, nil))
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("unauthenticated GET /_/uploads/%s status = %d, want 333/302/303", id, rec.Code)
+	}
+
+	// Authenticated request to /_/uploads/{id} -> 200 OK with template
+	req := httptest.NewRequest("GET", "/_/uploads/"+id, nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: admin})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated GET /_/uploads/%s status = %d, want 200", id, rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), ".png") {
+		t.Errorf("expected body to contain .png, got: %s", rec.Body.String())
+	}
+
+	// API request to /api/tokens/{id}/uploads -> 200 OK JSON
+	apiReq := httptest.NewRequest("GET", "/api/tokens/"+id+"/uploads", nil)
+	apiReq.Header.Set("Authorization", "Bearer "+admin)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, apiReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/tokens/%s/uploads status = %d, want 200", id, rec.Code)
+	}
+	var jsonResp struct {
+		TokenID string `json:"token_id"`
+		Uploads []struct {
+			Name string `json:"name"`
+		} `json:"uploads"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &jsonResp); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+	if len(jsonResp.Uploads) != 1 || !strings.HasSuffix(jsonResp.Uploads[0].Name, ".png") {
+		t.Errorf("unexpected uploads in JSON: %+v", jsonResp)
+	}
+}
+
+func TestUploadTokenLoginAndProfile(t *testing.T) {
+	_, h, admin := newTestServer(t)
+	id, secret := createUploadToken(t, h, admin, "userone")
+
+	// 1. Upload token should be able to authenticate and view its own dashboard (user profile)
+	req := httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload token GET / status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "user profile") || !strings.Contains(body, "userone") {
+		t.Errorf("user dashboard should contain user profile and userone, got: %s", body)
+	}
+	if strings.Contains(body, "create token") || strings.Contains(body, "global quota") {
+		t.Errorf("upload token dashboard must not contain admin controls")
+	}
+
+	// 2. Upload token user should be able to view their own /_/uploads/{id}
+	userReq := httptest.NewRequest("GET", "/_/uploads/"+id, nil)
+	userReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, userReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload token GET /_/uploads/%s status = %d, want 200", id, rec.Code)
+	}
+
+	// 3. Upload token user should NOT be able to view another token's /_/uploads/{other_id}
+	otherReq := httptest.NewRequest("GET", "/_/uploads/otherid", nil)
+	otherReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, otherReq)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("upload token GET /_/uploads/otherid status = %d, want 408/403", rec.Code)
+	}
+}
+
+func TestInviteSystem(t *testing.T) {
+	s, h, admin := newTestServer(t)
+	id, secret := createUploadToken(t, h, admin, "userone")
+
+	// 1. Initially userone has 0 invites, so /tokens/invite should fail
+	form := url.Values{"label": []string{"friend1"}, "_csrf": []string{"test"}}
+	req := httptest.NewRequest("POST", "/tokens/invite", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("invite with 0 invites status = %d, want 303 redirect with error", rec.Code)
+	}
+
+	// 2. Admin grants 2 invites to userone
+	if err := s.store.SetInvites(id, 2); err != nil {
+		t.Fatalf("SetInvites failed: %v", err)
+	}
+
+	// 3. userone uses 1 invite to create friend1
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("invite with 2 invites status = %d, want 303 redirect with secret", rec.Code)
+	}
+
+	// 4. Check userone now has 1 invite left
+	recUser, ok := s.store.Authenticate(secret)
+	if !ok || recUser.Invites != 1 {
+		t.Fatalf("expected 1 invite left for userone, got %d", recUser.Invites)
+	}
+
+	// 5. Admin can also create tokens via /tokens/invite without decrements
+	adminReq := httptest.NewRequest("POST", "/tokens/invite", strings.NewReader(form.Encode()))
+	adminReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	adminReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: admin})
+	adminReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, adminReq)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("admin invite status = %d, want 303 redirect", rec.Code)
+	}
+}
+
+func TestTokenRename(t *testing.T) {
+	s, h, admin := newTestServer(t)
+	id, secret := createUploadToken(t, h, admin, "oldname")
+
+	// 1. User can rename their own token via POST /tokens/{id}/label
+	form := url.Values{"label": []string{"newname"}, "_csrf": []string{"test"}}
+	req := httptest.NewRequest("POST", "/tokens/"+id+"/label", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("user rename status = %d, want 303", rec.Code)
+	}
+
+	recUser, ok := s.store.Authenticate(secret)
+	if !ok || recUser.Label != "newname" {
+		t.Fatalf("expected label 'newname', got %q", recUser.Label)
+	}
+
+	// 2. User cannot rename another user's token
+	otherReq := httptest.NewRequest("POST", "/tokens/otherid/label", strings.NewReader(form.Encode()))
+	otherReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	otherReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
+	otherReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, otherReq)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("user rename other token status = %d, want 403", rec.Code)
+	}
+
+	// 3. Admin can rename any token via JSON API
+	jsonBody := strings.NewReader(`{"label":"adm-ren"}`)
+	apiReq := httptest.NewRequest("POST", "/api/tokens/"+id+"/label", jsonBody)
+	apiReq.Header.Set("Content-Type", "application/json")
+	apiReq.Header.Set("Authorization", "Bearer "+admin)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, apiReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin API rename status = %d, want 200", rec.Code)
+	}
+
+	recUser, ok = s.store.Authenticate(secret)
+	if !ok || recUser.Label != "adm-ren" {
+		t.Fatalf("expected label 'adm-ren', got %q", recUser.Label)
+	}
+}
+
+func TestGatedAssets(t *testing.T) {
+	_, h, adminSecret := newTestServer(t)
+
+	// Unauthenticated request to /_/uploads.css => 404
+	req := httptest.NewRequest("GET", "/_/uploads.css", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unauth /_/uploads.css status = %d, want 404", rec.Code)
+	}
+
+	// Authenticated request to /_/uploads.css => 200 OK
+	reqAuth := httptest.NewRequest("GET", "/_/uploads.css", nil)
+	reqAuth.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
+	recAuth := httptest.NewRecorder()
+	h.ServeHTTP(recAuth, reqAuth)
+	if recAuth.Code != http.StatusOK {
+		t.Fatalf("auth /_/uploads.css status = %d, want 200", recAuth.Code)
+	}
+
+	// Unauthenticated request to /_/uploads.js => 404
+	reqJS := httptest.NewRequest("GET", "/_/uploads.js", nil)
+	recJS := httptest.NewRecorder()
+	h.ServeHTTP(recJS, reqJS)
+	if recJS.Code != http.StatusNotFound {
+		t.Fatalf("unauth /_/uploads.js status = %d, want 404", recJS.Code)
+	}
+
+	// Authenticated request to /_/uploads.js => 200 OK
+	reqJSAuth := httptest.NewRequest("GET", "/_/uploads.js", nil)
+	reqJSAuth.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
+	recJSAuth := httptest.NewRecorder()
+	h.ServeHTTP(recJSAuth, reqJSAuth)
+	if recJSAuth.Code != http.StatusOK {
+		t.Fatalf("auth /_/uploads.js status = %d, want 200", recJSAuth.Code)
+	}
+}
+
+func TestGiveawayInvites(t *testing.T) {
+	s, h, adminSecret := newTestServer(t)
+
+	// Create 2 upload tokens
+	id1, secret1 := createUploadToken(t, h, adminSecret, "user1")
+	id2, _ := createUploadToken(t, h, adminSecret, "user2")
+
+	// Initially both have 0 invites
+	r1, _ := s.store.Authenticate(secret1)
+	if r1.Invites != 0 {
+		t.Fatalf("expected 0 invites initially, got %d", r1.Invites)
+	}
+
+	// 1. SSR Giveaway: grant +3 invites to all uploaders
+	form := url.Values{}
+	form.Set("count", "3")
+	form.Set("_csrf", "test")
+	req := httptest.NewRequest("POST", "/tokens/giveaway", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("giveaway SSR status = %d, want 303", rec.Code)
+	}
+
+	r1, _ = s.store.Authenticate(secret1)
+	if r1.Invites != 3 {
+		t.Fatalf("expected 3 invites after giveaway, got %d", r1.Invites)
+	}
+
+	// 2. JSON API Giveaway: grant +2 more invites
+	jsonBody := strings.NewReader(`{"count":2}`)
+	apiReq := httptest.NewRequest("POST", "/api/tokens/giveaway", jsonBody)
+	apiReq.Header.Set("Content-Type", "application/json")
+	apiReq.Header.Set("Authorization", "Bearer "+adminSecret)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, apiReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("giveaway API status = %d, want 200", rec.Code)
+	}
+
+	r1, _ = s.store.Authenticate(secret1)
+	if r1.Invites != 5 {
+		t.Fatalf("expected 5 total invites after API giveaway, got %d", r1.Invites)
+	}
+
+	_ = id1
+	_ = id2
 }

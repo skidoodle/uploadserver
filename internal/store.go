@@ -31,6 +31,7 @@ var (
 	ErrLastAdmin     = errors.New("refusing to remove or disable the last enabled admin token")
 	ErrProtectedRoot = errors.New("the root token cannot be deleted or disabled; use `token reset` to replace it")
 	ErrInvalidLabel  = errors.New("label must be 1-9 characters, starting and ending with an alphanumeric character (can contain underscores or hyphens in the middle)")
+	ErrNoInvites     = errors.New("no invites remaining")
 	// ErrLocked is returned when another process (usually the running server)
 	// already holds the database open.
 	ErrLocked = errors.New("token store is locked by another process; stop the server or use the dashboard to manage tokens while it runs")
@@ -41,10 +42,18 @@ var labelRe = regexp.MustCompile("^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
 // bbolt key space: every token record lives in tokenBucket keyed by its id, and
 // the single server-wide quota lives in metaBucket under globalKey.
 var (
-	tokenBucket = []byte("tokens")
-	metaBucket  = []byte("meta")
-	globalKey   = []byte("global")
+	tokenBucket  = []byte("tokens")
+	metaBucket   = []byte("meta")
+	globalKey    = []byte("global")
+	uploadBucket = []byte("uploads")
 )
+
+// UploadEntry records a single file uploaded by a token.
+type UploadEntry struct {
+	Name       string    `json:"name"`        // filename on disk (e.g. "abc123.png")
+	Size       int64     `json:"size"`        // bytes written
+	UploadedAt time.Time `json:"uploaded_at"` // when the upload completed
+}
 
 // TokenRecord is a single credential. Only the hash of the secret is stored;
 // the plaintext secret is shown once at creation and never persisted.
@@ -59,6 +68,7 @@ type TokenRecord struct {
 	Usage     Usage     `json:"usage,omitzero"`          // running upload counters
 	Limits    Limits    `json:"limits,omitzero"`         // per-token upload quotas
 	Bypass    bool      `json:"bypass_global,omitempty"` // exempt from all upload quotas
+	Invites   int       `json:"invites,omitzero"`        // remaining invite token creation count
 }
 
 // BypassesGlobal reports whether the token is exempt from every upload quota.
@@ -96,6 +106,9 @@ func OpenStore(path string) (*TokenStore, error) {
 
 	if err := db.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(tokenBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(uploadBucket); err != nil {
 			return err
 		}
 		_, err := tx.CreateBucketIfNotExists(metaBucket)
@@ -268,6 +281,21 @@ func (s *TokenStore) SetDisabled(id string, disabled bool) error {
 	})
 }
 
+// SetLabel updates the label for token id.
+func (s *TokenStore) SetLabel(id, newLabel string) error {
+	if !labelRe.MatchString(newLabel) {
+		return ErrInvalidLabel
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		r, err := getRecord(tx, id)
+		if err != nil {
+			return err
+		}
+		r.Label = newLabel
+		return putRecord(tx, r)
+	})
+}
+
 // AllowUpload checks token id against its quotas and returns the largest number
 // of bytes the pending upload may write, clamped to hardMax. It returns
 // ErrQuotaUploads or ErrQuotaBytes if a quota is already exhausted, or
@@ -324,6 +352,99 @@ func (s *TokenStore) SetLimits(id string, lim Limits, bypass bool) error {
 		r.Bypass = bypass
 		return putRecord(tx, r)
 	})
+}
+
+// SetInvites updates the remaining invite token creation count for token id.
+func (s *TokenStore) SetInvites(id string, invites int) error {
+	if invites < 0 {
+		invites = 0
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		r, err := getRecord(tx, id)
+		if err != nil {
+			return err
+		}
+		r.Invites = invites
+		return putRecord(tx, r)
+	})
+}
+
+// AddInvitesToAllUploaders adds count invite credits to every token with the upload role.
+// Returns the number of tokens updated.
+func (s *TokenStore) AddInvitesToAllUploaders(count int) (int, error) {
+	if count <= 0 {
+		return 0, nil
+	}
+	updated := 0
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(tokenBucket)
+		var targets []TokenRecord
+		_ = b.ForEach(func(_, v []byte) error {
+			var r TokenRecord
+			if json.Unmarshal(v, &r) == nil && r.Role == RoleUpload {
+				r.Invites += count
+				targets = append(targets, r)
+			}
+			return nil
+		})
+		for i := range targets {
+			if err := putRecord(tx, &targets[i]); err != nil {
+				return err
+			}
+			updated++
+		}
+		return nil
+	})
+	return updated, err
+}
+
+// AddWithInvite creates a new upload token using an invite from creatorID.
+// If creatorID is an admin/root token, it has unlimited invites.
+// Otherwise, creatorID must have Invites > 0, which is decremented by 1.
+func (s *TokenStore) AddWithInvite(creatorID, label string) (id, secret string, err error) {
+	if !labelRe.MatchString(label) {
+		return "", "", ErrInvalidLabel
+	}
+	secret, err = GenerateSecret()
+	if err != nil {
+		return "", "", err
+	}
+	sum := sha256.Sum256([]byte(secret))
+	rec := &TokenRecord{
+		Label:     label,
+		Role:      RoleUpload,
+		Hash:      hex.EncodeToString(sum[:]),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(tokenBucket)
+		creator, err := getRecord(tx, creatorID)
+		if err != nil {
+			return err
+		}
+		if !IsAdmin(creator.Role) {
+			if creator.Invites <= 0 {
+				return ErrNoInvites
+			}
+			creator.Invites--
+			if err := putRecord(tx, creator); err != nil {
+				return err
+			}
+		}
+
+		for {
+			rec.ID = randomID()
+			if b.Get([]byte(rec.ID)) == nil {
+				break
+			}
+		}
+		return putRecord(tx, rec)
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return rec.ID, secret, nil
 }
 
 // SetGlobalLimits replaces the server-wide default quota applied to every token
@@ -418,4 +539,41 @@ func (s *TokenStore) Ping() error {
 		_ = tx.Bucket(tokenBucket).Stats()
 		return nil
 	})
+}
+
+// RecordUploadEntry appends a file record to the token's upload history.
+func (s *TokenStore) RecordUploadEntry(tokenID string, entry UploadEntry) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(uploadBucket)
+		var entries []UploadEntry
+		if v := b.Get([]byte(tokenID)); v != nil {
+			_ = json.Unmarshal(v, &entries)
+		}
+		entries = append(entries, entry)
+		data, err := json.Marshal(entries)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(tokenID), data)
+	})
+}
+
+// UploadsFor returns all upload entries for a given token, newest first.
+func (s *TokenStore) UploadsFor(tokenID string) ([]UploadEntry, error) {
+	var entries []UploadEntry
+	err := s.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(uploadBucket).Get([]byte(tokenID))
+		if v == nil {
+			return nil
+		}
+		return json.Unmarshal(v, &entries)
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Reverse so newest first
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+	return entries, nil
 }

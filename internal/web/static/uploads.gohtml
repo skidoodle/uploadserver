@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" />
+    <title>uploadserver · {{.Token.Label}} uploads</title>
+    <link rel="stylesheet" href="/_/admin.css" />
+    <link rel="stylesheet" href="/_/uploads.css" />
+</head>
+<body>
+    <h1>uploadserver</h1>
+    <nav class="breadcrumb">
+        <a href="/">dashboard</a>
+        <span class="sep">›</span>
+        <span>{{.Token.Label}}</span>
+    </nav>
+    <a href="/" class="back-link">Back to dashboard</a>
+
+    <div class="summary-bar">
+        <span class="stat"><strong>{{len .Uploads}}</strong> file{{if ne (len .Uploads) 1}}s{{end}}</span>
+        <span class="stat"><strong>{{totalSize .Uploads}}</strong> total</span>
+    </div>
+
+    {{if .Uploads}}
+    <div class="file-list" id="fileList">
+        <div class="file-header">
+            <span class="fh-preview"></span>
+            <span class="fh-name">Name</span>
+            <span class="fh-type">Type</span>
+            <span class="fh-size">Size</span>
+            <span class="fh-date">Uploaded</span>
+        </div>
+        {{range .Uploads}}
+        <div class="file-row" data-page-item>
+            <span class="file-preview" data-preview-url="{{fileURL $.BaseURL .Name}}" data-file-name="{{.Name}}">
+                {{if isImage .Name}}
+                    <img src="{{fileURL $.BaseURL .Name}}" loading="lazy" alt="{{.Name}}">
+                {{else}}
+                    <span class="file-icon-fallback">{{fileIcon .Name}}</span>
+                {{end}}
+            </span>
+            <span class="file-name"><a href="{{fileURL $.BaseURL .Name}}" target="_blank" rel="noopener">{{.Name}}</a></span>
+            <span class="file-ext"><span class="ext-badge">{{fileExt .Name}}</span></span>
+            <span class="file-size">{{humanBytes .Size}}</span>
+            <span class="file-date">{{fmtDate .UploadedAt}}</span>
+        </div>
+        {{end}}
+    </div>
+    <div class="pager-bar" id="pagerBar">
+        <div id="pagerSummary">Showing 1–50 of {{len .Uploads}} files</div>
+        <div class="pager-controls" id="pagerControls"></div>
+    </div>
+    {{else}}
+    <div class="file-list">
+        <div class="empty-state">No uploads recorded yet.</div>
+    </div>
+    {{end}}
+
+    <dialog id="imgModal" class="lightbox-dialog">
+        <div class="lightbox-content">
+            <img id="modalImg" class="lightbox-img" src="" alt="Preview">
+            <div class="lightbox-footer">
+                <span id="modalTitle" class="mono"></span>
+                <div class="lightbox-actions">
+                    <a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
+                    <button type="button" id="modalClose" class="act-btn">Close</button>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <script src="/_/uploads.js"></script>
+</body>
+</html>

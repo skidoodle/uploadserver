@@ -8,18 +8,34 @@
         </form>
     </div>
 </fieldset>
+
 {{if .Error}}
 <p id="msg" class="err">{{.Error}}</p>
-{{else}}
+{{else if .IsAdmin}}
 <p id="msg">{{.Count}} token(s)</p>
 {{end}}
+
+{{if .Secret}}
+<div class="secret">
+    <button type="button" class="secret-close" title="Dismiss">&times;</button>
+    New {{.Secret.Role}} token <code>{{.Secret.ID}}</code> &#8212; shown once:
+    <div class="srow">
+        <span id="sv" class="mono blurred">{{.Secret.Secret}}</span>
+        <button type="button" id="reveal" class="act" title="Reveal token">Show</button>
+        <button type="button" id="cp" class="act">Copy</button>
+        <button type="button" id="dl-sxcu" class="act" data-token-id="{{.Secret.ID}}">Download .sxcu</button>
+    </div>
+</div>
+{{end}}
+
+{{if .IsAdmin}}
 <fieldset>
     <legend>create token</legend>
     <form method="POST" action="/tokens/create" class="bar">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <input name="label" placeholder="label (e.g. laptop)" required
             pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
-            title="1-9 characters. Must start and end with a letter or number. Can contain underscores or hyphens in the middle.">
+            title="1-9 alphanumeric characters (can contain _ or - inside).">
         <div class="csel" id="roleSel">
             <button type="button" class="csel-btn" id="roleBtn">role: upload</button>
             <div class="csel-opts" id="roleOpts">
@@ -29,6 +45,7 @@
         </div>
         <input type="hidden" name="role" id="role" value="upload">
         <button type="submit">Create</button>
+        <button type="button" id="giveawayBtn">Giveaway Invites</button>
     </form>
     <div id="label-err" class="label-err" hidden></div>
 </fieldset>
@@ -56,18 +73,6 @@
         </div>
     </form>
 </details>
-{{if .Secret}}
-<div class="secret">
-    <button type="button" class="secret-close" title="Dismiss">&times;</button>
-    New {{.Secret.Role}} token <code>{{.Secret.ID}}</code> &#8212; shown once:
-    <div class="srow">
-        <span id="sv" class="mono blurred">{{.Secret.Secret}}</span>
-        <button type="button" id="reveal" class="act" title="Reveal token">Show</button>
-        <button type="button" id="cp" class="act">Copy</button>
-        <button type="button" id="dl-sxcu" class="act" data-token-id="{{.Secret.ID}}">Download .sxcu</button>
-    </div>
-</div>
-{{end}}
 <table>
     <thead>
         <tr>
@@ -78,37 +83,45 @@
             <th>Created</th>
             <th>Last used</th>
             <th>Usage</th>
-            <th class="actions">Actions</th>
+            <th class="ctx-col"></th>
         </tr>
     </thead>
     <tbody>
         {{range .Tokens}}
         <tr{{if .Disabled}} class="off" {{end}}>
-            <td><code>{{.ID}}</code></td>
-            <td>{{.Label}}</td>
-            <td>{{.Role}}</td>
-            <td>{{if .Disabled}}disabled{{else}}active{{end}}</td>
-            <td>{{fmtDate .CreatedAt}}</td>
-            <td>{{with fmtDate .LastUsed}}{{.}}{{else}}<span class="dim">never</span>{{end}}</td>
-            <td class="usage">{{$eff := effective .Limits $.Global .BypassesGlobal}}{{if or .Usage.Uploads $eff.Any
+            <td data-label="ID"><code>{{.ID}}</code></td>
+            <td data-label="Label">{{.Label}}</td>
+            <td data-label="Role">{{.Role}}</td>
+            <td data-label="Status">{{if .Disabled}}disabled{{else}}active{{end}}</td>
+            <td data-label="Created">{{fmtDate .CreatedAt}}</td>
+            <td data-label="Last used">{{with fmtDate .LastUsed}}{{.}}{{else}}<span class="dim">never</span>{{end}}</td>
+            <td data-label="Usage" class="usage">{{$eff := effective .Limits $.Global .BypassesGlobal}}{{if or .Usage.Uploads $eff.Any
                 .Bypass}}<span class="u-line">{{comma .Usage.Uploads}}{{if $eff.MaxUploads}} <span class="dim">/ {{comma
                         $eff.MaxUploads}}</span>{{else if .Bypass}} <span class="dim">/ ∞</span>{{end}} uploads</span><span class="u-line dim">{{humanBytes
                     .Usage.Bytes}}{{if $eff.MaxBytes}} / {{humanBytes $eff.MaxBytes}}{{else if .Bypass}} / ∞{{end}}</span>{{else}}<span class="dim">none</span>{{end}}</td>
-            <td class="actions">{{if ne .Role "root"}}<div class="act-bar">
-                    <button type="button" class="act" data-limit-id="{{.ID}}"
+            <td class="ctx-col">{{if ne .Role "root"}}<div class="ctx">
+                <button type="button" class="ctx-trigger" aria-label="Actions">⋯</button>
+                <div class="ctx-menu">
+                    <a href="/_/uploads/{{.ID}}" class="ctx-item">Files</a>
+                    <button type="button" class="ctx-item" data-rename-id="{{.ID}}" data-label="{{.Label}}">Rename</button>
+                    <button type="button" class="ctx-item" data-limit-id="{{.ID}}"
                         data-max-bytes="{{with .Limits.MaxBytes}}{{humanBytes .}}{{end}}"
                         data-max-uploads="{{with .Limits.MaxUploads}}{{.}}{{end}}"
                         data-monthly-bytes="{{with .Limits.MonthlyBytes}}{{humanBytes .}}{{end}}"
                         data-monthly-uploads="{{with .Limits.MonthlyUploads}}{{.}}{{end}}"
-                        data-bypass="{{if .Bypass}}1{{end}}">Limits</button>
-                    <form method="POST" action="/tokens/{{.ID}}/toggle" class="form-inline"><input type="hidden"
-                            name="_csrf" value="{{$.CSRF}}"><input type="hidden" name="disable"
-                            value="{{if .Disabled}}false{{else}}true{{end}}"><button class="act" type="submit">{{if
-                            .Disabled}}Enable{{else}}Disable{{end}}</button></form><button type="button"
-                        class="act danger" data-delete-id="{{.ID}}">Delete</button>
-                </div>{{end}}</td>
-            </tr>
-            {{end}}
+                        data-invites="{{with .Invites}}{{.}}{{end}}"
+                        data-bypass="{{if .Bypass}}1{{end}}">Limits & Invites</button>
+                    <form method="POST" action="/tokens/{{.ID}}/toggle" class="ctx-form">
+                        <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+                        <input type="hidden" name="disable" value="{{if .Disabled}}false{{else}}true{{end}}">
+                        <button class="ctx-item" type="submit">{{if .Disabled}}Enable{{else}}Disable{{end}}</button>
+                    </form>
+                    <div class="ctx-sep"></div>
+                    <button type="button" class="ctx-item ctx-danger" data-delete-id="{{.ID}}">Delete</button>
+                </div>
+            </div>{{end}}</td>
+        </tr>
+        {{end}}
     </tbody>
 </table>
 <dialog id="dlg">
@@ -124,7 +137,7 @@
 <dialog id="limdlg">
     <form method="POST" id="limForm" action="">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
-        <p>Quotas for <code id="limTarget"></code></p>
+        <p>Quotas & Invites for <code id="limTarget"></code></p>
         <div class="lim-grid">
             <label>Total size<input name="max_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"></label>
             <label>Total uploads<input name="max_uploads" data-kind="count" placeholder="unlimited"
@@ -133,15 +146,114 @@
                     autocomplete="off"></label>
             <label>Monthly uploads<input name="monthly_uploads" data-kind="count" placeholder="unlimited"
                     autocomplete="off"></label>
+            <label>Invite quota<input name="invites" type="number" min="0" placeholder="0" autocomplete="off"></label>
         </div>
         <label class="lim-check"><input type="checkbox" name="bypass" id="limBypass" value="true"> Exempt this token from
             all quotas</label>
-        <p class="dim lim-hint">Blank or 0 means unlimited. Personal caps override the global default; sizes accept
-            units, e.g. 500MB or 5GB.</p>
+        <p class="dim lim-hint">Blank or 0 means unlimited/none. Personal caps override global defaults.</p>
         <div id="lim-err" class="quota-err"></div>
         <div class="bar bar-end">
             <button type="button" data-cancel>Cancel</button>
             <button type="submit">Save</button>
+        </div>
+    </form>
+</dialog>
+{{else}}
+{{if .CurrentToken}}
+{{if gt .CurrentToken.Invites 0}}
+<fieldset>
+    <legend>create token</legend>
+    <form method="POST" action="/tokens/invite" id="inviteForm" class="bar">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input name="label" id="inviteInput" placeholder="token label (e.g. alex)" required
+            pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
+            title="1-9 alphanumeric characters (can contain _ or - inside).">
+        <button type="submit">Create token</button>
+    </form>
+    <div id="invite-err" class="label-err" hidden></div>
+</fieldset>
+{{end}}
+<fieldset>
+    <legend>user profile</legend>
+    <table class="profile-table">
+        <tbody>
+            <tr>
+                <th>ID</th>
+                <td><code>{{.CurrentToken.ID}}</code></td>
+            </tr>
+            <tr>
+                <th>Label</th>
+                <td><strong>{{.CurrentToken.Label}}</strong></td>
+            </tr>
+            <tr>
+                <th>Role</th>
+                <td>{{.CurrentToken.Role}}</td>
+            </tr>
+            <tr>
+                <th>Status</th>
+                <td>{{if .CurrentToken.Disabled}}<span class="err">disabled</span>{{else}}<span class="dim">active</span>{{end}}</td>
+            </tr>
+            <tr>
+                <th>Created</th>
+                <td>{{fmtDate .CurrentToken.CreatedAt}}</td>
+            </tr>
+            <tr>
+                <th>Last used</th>
+                <td>{{with fmtDate .CurrentToken.LastUsed}}{{.}}{{else}}<span class="dim">never</span>{{end}}</td>
+            </tr>
+            <tr>
+                <th>Usage</th>
+                <td>{{comma .CurrentToken.Usage.Uploads}} upload{{if ne .CurrentToken.Usage.Uploads 1}}s{{end}} <span class="dim">({{humanBytes .CurrentToken.Usage.Bytes}})</span>{{if or .CurrentToken.Usage.MonthUploadsNow .CurrentToken.Usage.MonthBytesNow}} <span class="dim">· {{comma .CurrentToken.Usage.MonthUploadsNow}} this month ({{humanBytes .CurrentToken.Usage.MonthBytesNow}})</span>{{end}}</td>
+            </tr>
+            <tr>
+                <th>Quota</th>
+                <td>{{$sum := summary (effective .CurrentToken.Limits $.Global .CurrentToken.BypassesGlobal)}}{{if $sum}}{{$sum}}{{else}}<span class="dim">unlimited</span>{{end}}</td>
+            </tr>
+            <tr>
+                <th>Invites</th>
+                <td>{{if gt .CurrentToken.Invites 0}}{{.CurrentToken.Invites}} invite{{if ne .CurrentToken.Invites 1}}s{{end}} remaining{{else}}<span class="dim">0 remaining</span>{{end}}</td>
+            </tr>
+        </tbody>
+    </table>
+    <div class="profile-actions">
+        <button type="button" class="act" data-rename-id="{{.CurrentToken.ID}}" data-label="{{.CurrentToken.Label}}">Rename Label</button>
+        <form method="GET" action="/_/uploads/{{.CurrentToken.ID}}" class="form-inline">
+            <button type="submit">View My Files</button>
+        </form>
+    </div>
+</fieldset>
+{{end}}
+{{end}}
+
+<dialog id="renamedlg">
+    <form method="POST" id="renameForm" action="">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <p>Rename token <code id="renameTarget"></code></p>
+        <label style="display:flex; flex-direction:column; gap: 0.35rem; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--fg-muted);">New Label
+            <input name="label" id="renameInput" required
+                pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
+                title="1-9 alphanumeric characters (can contain _ or - inside)."
+                style="width: 100%; box-sizing: border-box;">
+        </label>
+        <div id="rename-err" class="label-err" hidden></div>
+        <div class="bar bar-end">
+            <button type="button" data-cancel>Cancel</button>
+            <button type="submit">Save</button>
+        </div>
+    </form>
+</dialog>
+
+<dialog id="giveawaydlg">
+    <form method="POST" action="/tokens/giveaway">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <p style="margin-top: 0; font-weight: 600;">Giveaway Invites</p>
+        <p style="font-size: 0.85rem; color: var(--fg-muted); margin-bottom: 0.8rem;">Grant additional invite credits to all users with the <code>upload</code> role.</p>
+        <label style="display:flex; flex-direction:column; gap: 0.35rem; margin-bottom: 0.8rem; font-size: 0.85rem; color: var(--fg-muted);">Invites per user
+            <input type="number" name="count" min="1" max="100" value="1" required style="width: 100%; box-sizing: border-box;">
+        </label>
+        <div class="bar bar-end">
+            <button type="button" data-cancel>Cancel</button>
+            <button type="submit">Grant Invites</button>
         </div>
     </form>
 </dialog>

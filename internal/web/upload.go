@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"uploadserver/internal"
 )
 
@@ -80,6 +81,12 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.RecordUpload(rec.ID, n); err != nil {
 		log.Printf("record usage for %s: %v", rec.ID, err)
 	}
+
+	_ = s.store.RecordUploadEntry(rec.ID, internal.UploadEntry{
+		Name:       name,
+		Size:       n,
+		UploadedAt: time.Now().UTC(),
+	})
 
 	url := publicURL(cfg, r, name)
 	log.Printf("stored %s (%d bytes) by token %s (%s) from %s", name, n, rec.ID, rec.Label, clientIP(r))

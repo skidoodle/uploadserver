@@ -36,22 +36,31 @@ func (s *server) routes() http.Handler {
 		mux.Handle("GET /_/login.js", http.StripPrefix("/_/", assets))
 		mux.Handle("GET /_/admin.css", http.StripPrefix("/_/", gatedAssets))
 		mux.Handle("GET /_/admin.js", http.StripPrefix("/_/", gatedAssets))
+		mux.Handle("GET /_/uploads.css", http.StripPrefix("/_/", gatedAssets))
+		mux.Handle("GET /_/uploads.js", http.StripPrefix("/_/", gatedAssets))
 
 		mux.HandleFunc("GET /{$}", s.handleAdminPage)
 		mux.HandleFunc("POST /login", s.handleAdminLogin)
 		mux.HandleFunc("POST /logout", s.handleAdminLogout)
 		mux.HandleFunc("POST /tokens/create", s.handleAdminCreateTokenSSR)
+		mux.HandleFunc("POST /tokens/invite", s.handleInviteTokenSSR)
+		mux.HandleFunc("POST /tokens/giveaway", s.handleGiveawaySSR)
 		mux.HandleFunc("POST /tokens/{id}/toggle", s.handleAdminToggleTokenSSR)
 		mux.HandleFunc("POST /tokens/{id}/delete", s.handleAdminDeleteTokenSSR)
 		mux.HandleFunc("POST /tokens/{id}/limits", s.handleAdminSetLimitsSSR)
+		mux.HandleFunc("POST /tokens/{id}/label", s.handleSetLabelSSR)
 		mux.HandleFunc("POST /global/limits", s.handleAdminSetGlobalLimitsSSR)
 		mux.HandleFunc("GET /api/tokens", s.handleListTokens)
 		mux.HandleFunc("POST /api/tokens", s.handleCreateToken)
+		mux.HandleFunc("POST /api/tokens/giveaway", s.handleGiveawayAPI)
 		mux.HandleFunc("DELETE /api/tokens/{id}", s.handleDeleteToken)
 		mux.HandleFunc("POST /api/tokens/{id}/disable", s.handleSetDisabled(true))
 		mux.HandleFunc("POST /api/tokens/{id}/enable", s.handleSetDisabled(false))
 		mux.HandleFunc("POST /api/tokens/{id}/limits", s.handleSetLimits)
+		mux.HandleFunc("POST /api/tokens/{id}/label", s.handleSetLabel)
 		mux.HandleFunc("POST /api/global/limits", s.handleSetGlobalLimits)
+		mux.HandleFunc("GET /api/tokens/{id}/uploads", s.handleAPITokenUploads)
+		mux.HandleFunc("GET /_/uploads/{id}", s.handleUserUploads)
 	}
 	return logging(secureHeaders(mux))
 }
@@ -87,7 +96,7 @@ func (s *server) gateAdminAsset(next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if rec, ok := s.store.Authenticate(c.Value); !ok || !internal.IsAdmin(rec.Role) {
+		if _, ok := s.store.Authenticate(c.Value); !ok {
 			http.NotFound(w, r)
 			return
 		}

@@ -107,11 +107,15 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	data := adminPageData{CSRF: csrf}
 
 	if c, err := r.Cookie(adminCookieName); err == nil {
-		if rec, ok := s.store.Authenticate(c.Value); ok && internal.IsAdmin(rec.Role) {
+		if rec, ok := s.store.Authenticate(c.Value); ok {
 			data.LoggedIn = true
-			data.Tokens = s.store.List()
-			data.Count = len(data.Tokens)
-			data.Global = s.store.GlobalLimits()
+			data.IsAdmin = internal.IsAdmin(rec.Role)
+			data.CurrentToken = &rec
+			if data.IsAdmin {
+				data.Tokens = s.store.List()
+				data.Count = len(data.Tokens)
+				data.Global = s.store.GlobalLimits()
+			}
 		} else {
 			clearCookie(w, r, adminCookieName)
 			data.Error = "session expired, please log in again"
@@ -138,8 +142,8 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	s.renderAdmin(w, data)
 }
 
-// handleAdminLogin checks the submitted token and, if it is a valid admin
-// credential, drops the session cookie and sends the user to the dashboard.
+// handleAdminLogin checks the submitted token and, if valid, drops the session cookie
+// and sends the user to the dashboard.
 func (s *server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if !validateCSRF(r) {
 		redirectWithError(w, r, "invalid request")
@@ -150,8 +154,7 @@ func (s *server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		redirectWithError(w, r, "token required")
 		return
 	}
-	rec, ok := s.store.Authenticate(token)
-	if !ok || !internal.IsAdmin(rec.Role) {
+	if _, ok := s.store.Authenticate(token); !ok {
 		redirectWithError(w, r, "invalid token")
 		return
 	}
@@ -256,6 +259,40 @@ func (s *server) handleAdminSetLimitsSSR(w http.ResponseWriter, r *http.Request)
 		redirectWithError(w, r, err.Error())
 		return
 	}
+	if invitesStr := r.FormValue("invites"); invitesStr != "" {
+		invites, _ := strconv.Atoi(invitesStr)
+		_ = s.store.SetInvites(r.PathValue("id"), invites)
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleInviteTokenSSR allows an authorized token user (or admin) to create a token.
+func (s *server) handleInviteTokenSSR(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return
+	}
+	if !validateCSRF(r) {
+		redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	label := r.FormValue("label")
+	id, secret, err := s.store.AddWithInvite(userRec.ID, label)
+	if err != nil {
+		redirectWithError(w, r, err.Error())
+		return
+	}
+	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: internal.RoleUpload, Secret: secret}); err == nil {
+		setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -330,6 +367,64 @@ func (s *server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleSetLabelSSR handles renaming a token via form submit.
+func (s *server) handleSetLabelSSR(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return
+	}
+	if !validateCSRF(r) {
+		redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	id := r.PathValue("id")
+	if !internal.IsAdmin(userRec.Role) && userRec.ID != id {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	newLabel := r.FormValue("label")
+	if err := s.store.SetLabel(id, newLabel); err != nil {
+		redirectWithError(w, r, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleSetLabel is the JSON API endpoint for renaming a token.
+func (s *server) handleSetLabel(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.authenticate(r)
+	if !ok {
+		httpError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	id := r.PathValue("id")
+	if !internal.IsAdmin(rec.Role) && rec.ID != id {
+		httpError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.store.SetLabel(id, req.Label); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "label": req.Label})
 }
 
 // handleSetDisabled returns the enable/disable API handler for the given target
@@ -447,4 +542,123 @@ func writeStoreErr(w http.ResponseWriter, err error) {
 func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
 	setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleUserUploads renders the per-token upload history page.
+func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return
+	}
+
+	tokenID := r.PathValue("id")
+	if !internal.IsAdmin(userRec.Role) && userRec.ID != tokenID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	records := s.store.List()
+	var rec *internal.TokenRecord
+	for i := range records {
+		if records[i].ID == tokenID {
+			rec = &records[i]
+			break
+		}
+	}
+	if rec == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	entries, _ := s.store.UploadsFor(tokenID)
+
+	csrf := generateCSRF()
+	setCSRFCookie(w, r, csrf)
+
+	data := uploadsPageData{
+		Token:   *rec,
+		Uploads: entries,
+		BaseURL: s.cfg.BaseURL,
+		CSRF:    csrf,
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := uploadsTmpl.Execute(w, data); err != nil {
+		log.Printf("uploads template error: %v", err)
+	}
+}
+
+// handleAPITokenUploads returns JSON upload history for token id.
+func (s *server) handleAPITokenUploads(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	tokenID := r.PathValue("id")
+	entries, err := s.store.UploadsFor(tokenID)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token_id": tokenID,
+		"uploads":  entries,
+	})
+}
+
+// handleGiveawaySSR handles the SSR request to add N invites to all upload tokens.
+func (s *server) handleGiveawaySSR(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminCookie(w, r) {
+		return
+	}
+	if !validateCSRF(r) {
+		redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	countStr := r.FormValue("count")
+	count, err := strconv.Atoi(countStr)
+	if err != nil || count <= 0 {
+		redirectWithError(w, r, "invite count must be a positive number")
+		return
+	}
+
+	_, err = s.store.AddInvitesToAllUploaders(count)
+	if err != nil {
+		redirectWithError(w, r, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleGiveawayAPI handles the JSON API request to add N invites to all upload tokens.
+func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var req struct {
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Count <= 0 {
+		httpError(w, http.StatusBadRequest, "count must be a positive integer")
+		return
+	}
+
+	updated, err := s.store.AddInvitesToAllUploaders(req.Count)
+	if err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":            true,
+		"updated_users": updated,
+		"added_invites": req.Count,
+	})
 }
