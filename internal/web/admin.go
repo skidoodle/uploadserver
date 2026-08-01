@@ -577,15 +577,58 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 	}
 
 	entries, _ := s.store.UploadsFor(tokenID)
+	totalAll := len(entries)
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query != "" {
+		lower := strings.ToLower(query)
+		filtered := entries[:0:0]
+		for _, e := range entries {
+			if strings.Contains(strings.ToLower(e.Name), lower) {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
+	totalFiles := len(entries)
+
+	const perPage = 50
+	totalPages := max((totalFiles+perPage-1)/perPage, 1)
+
+	page := 1
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p >= 1 {
+		page = p
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	start := (page - 1) * perPage
+	end := min(start+perPage, totalFiles)
+	pageEntries := entries[start:end]
 
 	csrf := generateCSRF()
 	setCSRFCookie(w, r, csrf)
 
+	totalUnfiltered := 0
+	if query != "" {
+		totalUnfiltered = totalAll
+	}
+
 	data := uploadsPageData{
-		Token:   *rec,
-		Uploads: entries,
-		BaseURL: s.cfg.BaseURL,
-		CSRF:    csrf,
+		Token:           *rec,
+		Uploads:         pageEntries,
+		BaseURL:         s.cfg.BaseURL,
+		CSRF:            csrf,
+		Page:            page,
+		TotalPages:      totalPages,
+		TotalFiles:      totalFiles,
+		TotalUnfiltered: totalUnfiltered,
+		PerPage:         perPage,
+		PageStart:       start + 1,
+		PageEnd:         end,
+		Query:           query,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

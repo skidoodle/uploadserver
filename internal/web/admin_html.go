@@ -2,7 +2,9 @@ package web
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -26,10 +28,18 @@ var staticFS embed.FS
 
 // uploadsPageData is the template data for the per-token uploads page.
 type uploadsPageData struct {
-	Token   internal.TokenRecord
-	Uploads []internal.UploadEntry
-	BaseURL string
-	CSRF    string
+	Token           internal.TokenRecord
+	Uploads         []internal.UploadEntry // current page slice
+	BaseURL         string
+	CSRF            string
+	Page            int // 1-indexed current page
+	TotalPages      int
+	TotalFiles      int // count after filtering (or total when no query)
+	TotalUnfiltered int // original count before search filter; 0 when no query
+	PerPage         int
+	PageStart       int // 1-indexed first file on this page
+	PageEnd         int // 1-indexed last file on this page
+	Query           string
 }
 
 // adminPageData is the template data for the admin page.
@@ -66,6 +76,9 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 			total += e.Size
 		}
 		return internal.FormatSize(total)
+	},
+	"totalSizeAll": func(bytes int64) string {
+		return internal.FormatSize(bytes)
 	},
 	"fileIcon": func(name string) string {
 		ext := strings.ToLower(filepath.Ext(name))
@@ -130,6 +143,37 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 		default:
 			return ""
 		}
+	},
+	// pageRange generates the page numbers to show in the paginator:
+	// always page 1 and the last page, plus a window around the current page.
+	"pageRange": func(cur, max int) []int {
+		if max <= 1 {
+			return []int{1}
+		}
+		delta := 0
+		seen := map[int]bool{}
+		var pages []int
+		add := func(p int) {
+			if p >= 1 && p <= max && !seen[p] {
+				seen[p] = true
+				pages = append(pages, p)
+			}
+		}
+		add(1)
+		for i := cur - delta; i <= cur+delta; i++ {
+			add(i)
+		}
+		add(max)
+		return pages
+	},
+	"add": func(a, b int) int { return a + b },
+	"sub": func(a, b int) int { return a - b },
+	"pageURL": func(page int, query string) template.URL {
+		s := fmt.Sprintf("?page=%d", page)
+		if query != "" {
+			s += "&q=" + url.QueryEscape(query)
+		}
+		return template.URL(s)
 	},
 }).Parse(uploadsHTML))
 
