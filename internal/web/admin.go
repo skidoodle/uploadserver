@@ -98,6 +98,26 @@ func (s *server) requireAdminCookie(w http.ResponseWriter, r *http.Request) bool
 	return true
 }
 
+// requireRootCookie gates the SSR mutation handlers that only the root user is allowed to execute.
+func (s *server) requireRootCookie(w http.ResponseWriter, r *http.Request) bool {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return false
+	}
+	rec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return false
+	}
+	if rec.Role != internal.RoleRoot {
+		redirectWithError(w, r, "forbidden: root token required")
+		return false
+	}
+	return true
+}
+
 // handleAdminPage renders the login screen or the dashboard, and shows any
 // one-shot flash message left by the previous request.
 func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
@@ -110,6 +130,7 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 		if rec, ok := s.store.Authenticate(c.Value); ok {
 			data.LoggedIn = true
 			data.IsAdmin = internal.IsAdmin(rec.Role)
+			data.IsRoot = (rec.Role == internal.RoleRoot)
 			data.CurrentToken = &rec
 			if data.IsAdmin {
 				data.Tokens = s.store.List()
@@ -204,6 +225,7 @@ func (s *server) handleAdminCreateTokenSSR(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// handleAdminToggleTokenSSR toggles the disabled state of a token.
 func (s *server) handleAdminToggleTokenSSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminCookie(w, r) {
 		return
@@ -222,6 +244,26 @@ func (s *server) handleAdminToggleTokenSSR(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// handleAdminSetRoleSSR sets the role of a token.
+func (s *server) handleAdminSetRoleSSR(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRootCookie(w, r) {
+		return
+	}
+	if !validateCSRF(r) {
+		redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	id := r.PathValue("id")
+	role := r.FormValue("role")
+	if err := s.store.SetRole(id, role); err != nil {
+		redirectWithError(w, r, err.Error())
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleAdminDeleteTokenSSR deletes a token.
 func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminCookie(w, r) {
 		return
@@ -425,6 +467,26 @@ func (s *server) handleSetLabel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "label": req.Label})
+}
+
+// handleSetRole is the JSON API endpoint for changing a token's role.
+func (s *server) handleSetRole(w http.ResponseWriter, r *http.Request) {
+	if !s.requireRoot(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	var req struct {
+		Role string `json:"role"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if err := s.store.SetRole(id, req.Role); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "role": req.Role})
 }
 
 // handleSetDisabled returns the enable/disable API handler for the given target

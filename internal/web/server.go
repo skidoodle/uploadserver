@@ -60,6 +60,8 @@ func (s *server) routes() http.Handler {
 		mux.HandleFunc("POST /api/tokens/{id}/label", s.handleSetLabel)
 		mux.HandleFunc("POST /api/global/limits", s.handleSetGlobalLimits)
 		mux.HandleFunc("GET /api/tokens/{id}/uploads", s.handleAPITokenUploads)
+		mux.HandleFunc("POST /tokens/{id}/role", s.handleAdminSetRoleSSR)
+		mux.HandleFunc("POST /api/tokens/{id}/role", s.handleSetRole)
 		mux.HandleFunc("GET /_/uploads/{id}", s.handleUserUploads)
 	}
 	return logging(secureHeaders(mux))
@@ -81,6 +83,17 @@ func (s *server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	if !ok || !internal.IsAdmin(rec.Role) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="admin"`)
 		httpError(w, http.StatusUnauthorized, "admin token required")
+		return false
+	}
+	return true
+}
+
+// requireRoot enforces a root-role token, writing a 401 if absent or unauthorized.
+func (s *server) requireRoot(w http.ResponseWriter, r *http.Request) bool {
+	rec, ok := s.authenticate(r)
+	if !ok || rec.Role != internal.RoleRoot {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="root"`)
+		httpError(w, http.StatusUnauthorized, "root token required")
 		return false
 	}
 	return true

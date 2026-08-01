@@ -116,6 +116,13 @@
                         <input type="hidden" name="disable" value="{{if .Disabled}}false{{else}}true{{end}}">
                         <button class="ctx-item" type="submit">{{if .Disabled}}Enable{{else}}Disable{{end}}</button>
                     </form>
+                    {{if $.IsRoot}}
+                    {{if eq .Role "admin"}}
+                    <button type="button" class="ctx-item" data-role-id="{{.ID}}" data-role-target="upload" data-role-label="Demote to Uploader">Demote to Uploader</button>
+                    {{else if eq .Role "upload"}}
+                    <button type="button" class="ctx-item" data-role-id="{{.ID}}" data-role-target="admin" data-role-label="Promote to Admin">Promote to Admin</button>
+                    {{end}}
+                    {{end}}
                     <div class="ctx-sep"></div>
                     <button type="button" class="ctx-item ctx-danger" data-delete-id="{{.ID}}">Delete</button>
                 </div>
@@ -131,6 +138,17 @@
         <div class="bar bar-end">
             <button type="button" data-cancel>Cancel</button>
             <button type="submit" class="danger">Delete</button>
+        </div>
+    </form>
+</dialog>
+<dialog id="roledlg">
+    <form method="POST" id="roleForm" action="">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <input type="hidden" name="role" id="roleTargetInput" value="">
+        <p id="roledlgmsg"></p>
+        <div class="bar bar-end">
+            <button type="button" data-cancel>Cancel</button>
+            <button type="submit">Confirm</button>
         </div>
     </form>
 </dialog>

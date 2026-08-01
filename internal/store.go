@@ -296,6 +296,33 @@ func (s *TokenStore) SetLabel(id, newLabel string) error {
 	})
 }
 
+// SetRole changes a token's role between admin and upload. The root token is
+// immutable, promoting to root is forbidden, and demoting the last enabled
+// admin is blocked (same guard as Remove and SetDisabled).
+func (s *TokenStore) SetRole(id, newRole string) error {
+	if newRole != RoleAdmin && newRole != RoleUpload {
+		return fmt.Errorf("invalid role %q (want %q or %q)", newRole, RoleAdmin, RoleUpload)
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		r, err := getRecord(tx, id)
+		if err != nil {
+			return err
+		}
+		if r.Role == RoleRoot {
+			return ErrProtectedRoot
+		}
+		if r.Role == newRole {
+			return nil // no-op
+		}
+		// Demoting the last enabled admin would lock everyone out.
+		if r.Role == RoleAdmin && newRole == RoleUpload && !r.Disabled && enabledAdmins(tx, id) == 0 {
+			return ErrLastAdmin
+		}
+		r.Role = newRole
+		return putRecord(tx, r)
+	})
+}
+
 // AllowUpload checks token id against its quotas and returns the largest number
 // of bytes the pending upload may write, clamped to hardMax. It returns
 // ErrQuotaUploads or ErrQuotaBytes if a quota is already exhausted, or

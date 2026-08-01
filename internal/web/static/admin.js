@@ -26,6 +26,7 @@ class AdminDashboard {
     this.#initLabelValidation();
     this.#initSecretCard();
     this.#initDeleteDialog();
+    this.#initRoleDialog();
     this.#initRenameDialog();
     this.#initLimitsDialog();
     this.#initGiveawayDialog();
@@ -260,6 +261,31 @@ class AdminDashboard {
         const id = button.dataset.deleteId;
         message.textContent = `Delete token ${id}? Uploads using it stop working immediately.`;
         form.action = `/tokens/${id}/delete`;
+        dialog.showModal();
+      });
+    });
+
+    dialog
+      .querySelector("[data-cancel]")
+      ?.addEventListener("click", () => dialog.close());
+  }
+
+  #initRoleDialog() {
+    const dialog = document.getElementById("roledlg");
+    const form = document.getElementById("roleForm");
+    const targetInput = document.getElementById("roleTargetInput");
+    const message = document.getElementById("roledlgmsg");
+    if (!dialog || !form || !targetInput || !message) return;
+
+    document.querySelectorAll("button[data-role-id]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const id = button.dataset.roleId;
+        const targetRole = button.dataset.roleTarget;
+        const label = button.dataset.roleLabel;
+
+        targetInput.value = targetRole;
+        message.textContent = `${label} for token ${id}?`;
+        form.action = `/tokens/${id}/role`;
         dialog.showModal();
       });
     });

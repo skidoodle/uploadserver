@@ -834,3 +834,97 @@ func TestGiveawayInvites(t *testing.T) {
 	_ = id1
 	_ = id2
 }
+
+func TestTokenPromotionDemotion(t *testing.T) {
+	dir := t.TempDir()
+	store, err := internal.OpenStore(filepath.Join(dir, "tokens.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rootSecret, created, err := store.Bootstrap()
+	if err != nil || !created || rootSecret == "" {
+		t.Fatalf("bootstrap failed: %v", err)
+	}
+
+	// Add an admin token and an upload token.
+	_, adminSecret, err := store.Add("anadmin", internal.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploadID, uploadSecret, err := store.Add("uploader", internal.RoleUpload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := internal.Config{
+		Dir:          dir,
+		BaseURL:      "https://cdn.example.com/u",
+		Field:        "file",
+		MaxBytes:     1 << 20,
+		StorePath:    filepath.Join(dir, "tokens.json"),
+		AdminEnabled: true,
+	}
+	srv := &server{cfg: cfg, store: store}
+	h := srv.routes()
+
+	// 1. Non-root admin tries to promote uploader to admin -> fails (redirect to dashboard with error or forbidden)
+	form := url.Values{"role": []string{"admin"}, "_csrf": []string{"test"}}
+	req := httptest.NewRequest("POST", "/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect/error for unauthorized role change, got status %d", rec.Code)
+	}
+
+	recUser, _ := store.Authenticate(uploadSecret)
+	if recUser.Role != internal.RoleUpload {
+		t.Fatalf("expected role to remain upload, got %s", recUser.Role)
+	}
+
+	// 2. Root tries to promote uploader to admin -> succeeds
+	reqRoot := httptest.NewRequest("POST", "/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
+	reqRoot.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqRoot.AddCookie(&http.Cookie{Name: adminCookieName, Value: rootSecret})
+	reqRoot.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	recRoot := httptest.NewRecorder()
+	h.ServeHTTP(recRoot, reqRoot)
+	if recRoot.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect for successful role change, got status %d", recRoot.Code)
+	}
+
+	recUser, _ = store.Authenticate(uploadSecret)
+	if recUser.Role != internal.RoleAdmin {
+		t.Fatalf("expected role to become admin, got %s", recUser.Role)
+	}
+
+	// 3. API endpoint: Non-root tries to demote back to upload -> fails (401 root required)
+	jsonBody := strings.NewReader(`{"role":"upload"}`)
+	apiReq := httptest.NewRequest("POST", "/api/tokens/"+uploadID+"/role", jsonBody)
+	apiReq.Header.Set("Content-Type", "application/json")
+	apiReq.Header.Set("Authorization", "Bearer "+adminSecret)
+	recAPI := httptest.NewRecorder()
+	h.ServeHTTP(recAPI, apiReq)
+	if recAPI.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status 401 Unauthorized, got %d", recAPI.Code)
+	}
+
+	// 4. API endpoint: Root demotes back to upload -> succeeds
+	jsonBodyRoot := strings.NewReader(`{"role":"upload"}`)
+	apiReqRoot := httptest.NewRequest("POST", "/api/tokens/"+uploadID+"/role", jsonBodyRoot)
+	apiReqRoot.Header.Set("Content-Type", "application/json")
+	apiReqRoot.Header.Set("Authorization", "Bearer "+rootSecret)
+	recAPIRoot := httptest.NewRecorder()
+	h.ServeHTTP(recAPIRoot, apiReqRoot)
+	if recAPIRoot.Code != http.StatusOK {
+		t.Fatalf("expected status 200 OK, got %d: %s", recAPIRoot.Code, recAPIRoot.Body.String())
+	}
+
+	recUser, _ = store.Authenticate(uploadSecret)
+	if recUser.Role != internal.RoleUpload {
+		t.Fatalf("expected role to become upload, got %s", recUser.Role)
+	}
+}

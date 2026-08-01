@@ -46,6 +46,7 @@ type uploadsPageData struct {
 type adminPageData struct {
 	LoggedIn     bool
 	IsAdmin      bool
+	IsRoot       bool
 	CurrentToken *internal.TokenRecord
 	Tokens       []internal.TokenRecord
 	Count        int
