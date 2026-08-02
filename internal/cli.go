@@ -1,11 +1,15 @@
 package internal
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -16,6 +20,7 @@ const CLIUsage = `usage: uploadserver <command> [<args>]
 Commands:
   run                        Start the web server
   list                       List all tokens, with usage and quotas
+  info <id>                  Show detailed status and usage for a single token
   add [--label L] [--role R] Create a new token
   rm <id>                    Delete a token
   disable <id>               Disable a token
@@ -23,14 +28,24 @@ Commands:
   limit <id> [flags]         Set upload quotas for a token (use --help for flags)
   global [flags]             Show or set the server-wide default quota
   scan [--token ID]          Find untracked files on disk and optionally import them
+  prune [--days N] [--dry-run] Purge temporary upload files older than N days
+  export [--out file.json]   Export token store metadata to JSON
+  import [--in file.json]    Import token store metadata from JSON
   dump                       Decode the binary store and print everything in it
-  reset                      Delete all tokens and reset store`
+  reset                      Delete all tokens and reset store
+  version                    Show version and runtime info`
 
 // RunTokenCLI handles the CLI subcommands, operating directly on the on-disk store.
+// The store path is determined by the TOKEN_STORE environment variable, or defaults to "./state/tokens.db".
 func RunTokenCLI(args []string) (err error) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, CLIUsage)
 		return errors.New("no subcommand given")
+	}
+
+	if args[0] == "version" {
+		fmt.Printf("uploadserver v1.0.0 (%s %s/%s)\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		return nil
 	}
 
 	storePath := Env("TOKEN_STORE", "./state/tokens.db")
@@ -54,6 +69,10 @@ func RunTokenCLI(args []string) (err error) {
 	// what is stored, hashes included — the human-readable window into a binary file.
 	if args[0] == "dump" {
 		return runDump(storePath)
+	}
+
+	if args[0] == "prune" {
+		return runPrune(args[1:])
 	}
 
 	var store *TokenStore
@@ -82,6 +101,12 @@ func RunTokenCLI(args []string) (err error) {
 				quotaColumn(r), fmtTime(r.LastUsed), r.Label)
 		}
 		return tw.Flush()
+
+	case "info":
+		if len(args) < 2 {
+			return errors.New("usage: uploadserver info <id>")
+		}
+		return runInfo(store, args[1])
 
 	case "add":
 		fs := flag.NewFlagSet("add", flag.ContinueOnError)
@@ -127,6 +152,12 @@ func RunTokenCLI(args []string) (err error) {
 
 	case "scan":
 		return runScan(store, args[1:])
+
+	case "export":
+		return runExport(store, args[1:])
+
+	case "import":
+		return runImport(store, args[1:])
 
 	default:
 		fmt.Fprintln(os.Stderr, CLIUsage)
@@ -409,5 +440,165 @@ func runScan(store *TokenStore, args []string) error {
 		return fmt.Errorf("import: %w", err)
 	}
 	fmt.Printf("\nimported %d file(s) into token %s\n", len(entries), *tokenID)
+	return nil
+}
+
+// runInfo prints information about a token.
+func runInfo(store *TokenStore, id string) error {
+	rec, ok := store.GetRecord(id)
+	if !ok {
+		return ErrNotFound
+	}
+	fmt.Printf("Token ID:    %s\n", rec.ID)
+	fmt.Printf("Label:       %s\n", rec.Label)
+	fmt.Printf("Role:        %s\n", rec.Role)
+	fmt.Printf("Status:      %s\n", map[bool]string{true: "disabled", false: "enabled"}[rec.Disabled])
+	fmt.Printf("Created:     %s\n", fmtTime(rec.CreatedAt))
+	fmt.Printf("Last Used:   %s\n", fmtTime(rec.LastUsed))
+	fmt.Printf("Uploads:     %s\n", Comma(rec.Usage.Uploads))
+	fmt.Printf("Total Bytes: %s\n", FormatSize(rec.Usage.Bytes))
+	fmt.Printf("Month Usage: %s / %s\n", Comma(rec.Usage.MonthUploads), FormatSize(rec.Usage.MonthBytes))
+	fmt.Printf("Invites:     %d\n", rec.Invites)
+	fmt.Printf("Quota Caps:  %s\n", quotaColumn(rec))
+	return nil
+}
+
+// runPrune prunes temporary upload files older than a specified number of days.
+func runPrune(args []string) error {
+	fs := flag.NewFlagSet("prune", flag.ContinueOnError)
+	days := fs.Int("days", 1, "purge temp files older than N days")
+	dryRun := fs.Bool("dry-run", false, "list files without deleting")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	uploadDir := Env("UPLOAD_DIR", "./data")
+	cutoff := time.Now().Add(-time.Duration(*days) * 24 * time.Hour)
+
+	dirEntries, err := os.ReadDir(uploadDir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", uploadDir, err)
+	}
+
+	var prunedCount int
+	var prunedBytes int64
+
+	for _, de := range dirEntries {
+		if de.IsDir() || !strings.HasPrefix(de.Name(), ".upload-") {
+			continue
+		}
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			filePath := filepath.Join(uploadDir, de.Name())
+			if *dryRun {
+				fmt.Printf("[dry-run] would delete %s (%s, mod: %s)\n", de.Name(), FormatSize(info.Size()), fmtTime(info.ModTime()))
+			} else {
+				if err := os.Remove(filePath); err != nil {
+					fmt.Fprintf(os.Stderr, "failed to delete %s: %v\n", de.Name(), err)
+					continue
+				}
+				fmt.Printf("deleted %s (%s)\n", de.Name(), FormatSize(info.Size()))
+			}
+			prunedCount++
+			prunedBytes += info.Size()
+		}
+	}
+
+	if prunedCount == 0 {
+		fmt.Println("no temporary files due for pruning")
+		return nil
+	}
+
+	if *dryRun {
+		fmt.Printf("\n[dry-run] %d temp file(s) eligible for pruning (%s total)\n", prunedCount, FormatSize(prunedBytes))
+	} else {
+		fmt.Printf("\npruned %d temp file(s) (%s freed)\n", prunedCount, FormatSize(prunedBytes))
+	}
+	return nil
+}
+
+// runExport exports the token store to a JSON file.
+type exportData struct {
+	Global Limits        `json:"global"`
+	Tokens []TokenRecord `json:"tokens"`
+}
+
+// runExport exports the token store to a JSON file.
+func runExport(store *TokenStore, args []string) error {
+	fs := flag.NewFlagSet("export", flag.ContinueOnError)
+	outFile := fs.String("out", "", "output file path (default stdout)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	data := exportData{
+		Global: store.GlobalLimits(),
+		Tokens: store.List(),
+	}
+
+	var writer io.Writer = os.Stdout
+	if *outFile != "" {
+		f, err := os.Create(*outFile)
+		if err != nil {
+			return fmt.Errorf("create export file: %w", err)
+		}
+		defer func() { _ = f.Close() }()
+		writer = f
+	}
+
+	enc := json.NewEncoder(writer)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(data); err != nil {
+		return fmt.Errorf("encode export: %w", err)
+	}
+
+	if *outFile != "" {
+		fmt.Printf("exported %d token(s) to %s\n", len(data.Tokens), *outFile)
+	}
+	return nil
+}
+
+// runImport imports tokens from a JSON file into the store.
+func runImport(store *TokenStore, args []string) error {
+	fs := flag.NewFlagSet("import", flag.ContinueOnError)
+	inFile := fs.String("in", "", "input JSON file path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *inFile == "" {
+		return errors.New("usage: uploadserver import --in <file.json>")
+	}
+
+	f, err := os.Open(*inFile)
+	if err != nil {
+		return fmt.Errorf("open import file: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	var data exportData
+	if err := json.NewDecoder(f).Decode(&data); err != nil {
+		return fmt.Errorf("decode import file: %w", err)
+	}
+
+	if err := store.SetGlobalLimits(data.Global); err != nil {
+		return fmt.Errorf("set global limits: %w", err)
+	}
+
+	imported := 0
+	for _, rec := range data.Tokens {
+		if rec.ID == "" {
+			continue
+		}
+		if err := store.SetLimits(rec.ID, rec.Limits, rec.Bypass); err == nil {
+			_ = store.SetDisabled(rec.ID, rec.Disabled)
+			_ = store.SetInvites(rec.ID, rec.Invites)
+			imported++
+		}
+	}
+
+	fmt.Printf("imported global quota and updated %d token(s) from %s\n", imported, *inFile)
 	return nil
 }
