@@ -607,12 +607,14 @@ table {
 
     th:nth-child(5),
     td:nth-child(5) {
-        width: 10rem;
+        width: 11.5rem;
+        white-space: nowrap;
     }
 
     th:nth-child(6),
     td:nth-child(6) {
-        width: 10rem;
+        width: 11.5rem;
+        white-space: nowrap;
     }
 
     th:nth-child(7),
