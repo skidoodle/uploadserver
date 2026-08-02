@@ -364,19 +364,61 @@ span.pager-btn[disabled] {
 
 .lightbox-dialog {
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: 12px;
     background: var(--bg);
     color: var(--fg);
-    padding: 1.1rem;
+    padding: 1.25rem 3.5rem 1.1rem 3.5rem;
     max-width: 90vw;
     max-height: 90vh;
     box-shadow: var(--shadow-modal);
     box-sizing: border-box;
+    position: relative;
 
     &::backdrop {
         background: var(--backdrop-bg);
-        backdrop-filter: blur(4px);
+        backdrop-filter: blur(8px);
     }
+}
+
+.lightbox-nav-btn {
+    position: absolute;
+    top: calc(50% - 1.5rem);
+    transform: translateY(-50%);
+    z-index: 10;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-color);
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    padding: 0;
+}
+
+.lightbox-nav-btn.nav-prev {
+    left: 0.65rem;
+}
+
+.lightbox-nav-btn.nav-next {
+    right: 0.65rem;
+}
+
+.lightbox-nav-btn:hover:not([disabled]) {
+    background: var(--hover-bg);
+    border-color: var(--focus-ring);
+    color: var(--fg);
+    transform: translateY(-50%) scale(1.08);
+}
+
+.lightbox-nav-btn[disabled] {
+    opacity: 0.25;
+    cursor: default;
+    pointer-events: none;
 }
 
 .lightbox-content {
@@ -387,6 +429,15 @@ span.pager-btn[disabled] {
     width: 100%;
 }
 
+.lightbox-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-height: 65vh;
+    position: relative;
+}
+
 .lightbox-img {
     max-width: 100%;
     max-height: 65vh;
@@ -394,6 +445,7 @@ span.pager-btn[disabled] {
     border-radius: 6px;
     border: 1px solid var(--border-color-opts);
     touch-action: pinch-zoom;
+    transition: opacity 0.15s ease;
 }
 
 .lightbox-footer {
@@ -406,6 +458,14 @@ span.pager-btn[disabled] {
     box-sizing: border-box;
 }
 
+.lightbox-info {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    flex: 1;
+    min-width: 0;
+}
+
 #modalTitle {
     flex: 1;
     min-width: 0;
@@ -414,6 +474,18 @@ span.pager-btn[disabled] {
     white-space: nowrap;
     font-size: 0.82rem;
     color: var(--fg-muted);
+}
+
+.lightbox-counter {
+    font-size: 0.76rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 12px;
+    background: var(--bg-elevated);
+    color: var(--fg-muted);
+    border: 1px solid var(--border-color-opts);
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .lightbox-actions {

@@ -36,7 +36,7 @@
 			</form>
 		</div>
 		{{ if .Uploads }}
-			<div class="file-list" id="fileList">
+			<div class="file-list" id="fileList" data-page="{{ .Page }}" data-total-pages="{{ .TotalPages }}" data-token-id="{{ .Token.ID }}" data-query="{{ .Query }}">
 				<div class="file-header">
 					<span class="fh-preview"></span>
 					<span class="fh-name">Name</span>
@@ -47,7 +47,7 @@
 
 				{{ range .Uploads }}
 					<div class="file-row">
-						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name }}" data-file-name="{{ stripExt .Name }}">
+						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name }}" data-file-name="{{ stripExt .Name }}" data-is-image="{{ if isImage .Name }}true{{ else }}false{{ end }}">
 							{{ if isImage .Name }}
 								<img src="{{ fileURL $.BaseURL .Name }}" loading="lazy" alt="{{ stripExt .Name }}">
 							{{ else }}
@@ -106,10 +106,20 @@
 			</div>
 		{{ end }}
 		<dialog id="imgModal" class="lightbox-dialog">
+			<button type="button" id="modalPrev" class="lightbox-nav-btn nav-prev" aria-label="Previous image">
+				<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+			</button>
+			<button type="button" id="modalNext" class="lightbox-nav-btn nav-next" aria-label="Next image">
+				<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+			</button>
 			<div class="lightbox-content">
-				<img id="modalImg" class="lightbox-img" src="" alt="Preview">
+				<div class="lightbox-stage">
+					<img id="modalImg" class="lightbox-img" src="" alt="Preview">
+				</div>
 				<div class="lightbox-footer">
-					<span id="modalTitle" class="mono"></span>
+					<div class="lightbox-info">
+						<span id="modalTitle" class="mono"></span>
+					</div>
 					<div class="lightbox-actions">
 						<a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
 						<button type="button" id="modalClose" class="act-btn">Close</button>

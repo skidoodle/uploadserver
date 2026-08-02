@@ -578,6 +578,12 @@ func TestUserUploadsRoute(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), ".png") {
 		t.Errorf("expected body to contain .png for href/type, got: %s", rec.Body.String())
 	}
+	if !strings.Contains(rec.Body.String(), `id="modalPrev"`) || !strings.Contains(rec.Body.String(), `id="modalNext"`) {
+		t.Errorf("expected body to contain modalPrev and modalNext navigation buttons")
+	}
+	if !strings.Contains(rec.Body.String(), `data-is-image="true"`) {
+		t.Errorf("expected body to contain data-is-image=\"true\" for image preview")
+	}
 	// Verify that the displayed link text strips the extension
 	upURL := strings.TrimSpace(up.Body.String())
 	entryName := upURL[strings.LastIndex(upURL, "/")+1:]
