@@ -1,14 +1,20 @@
 package web
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
 	"html/template"
+	"io"
+	"log"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 	"uploadserver/internal"
+
+	"golang.org/x/net/html"
 )
 
 //go:embed static/admin.gohtml
@@ -63,6 +69,7 @@ type newTokenSecret struct {
 	Secret string
 }
 
+// uploadsTmpl is the parsed uploads template
 var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 	"fmtDate": func(t time.Time) string {
 		if t.IsZero() {
@@ -178,6 +185,7 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 	},
 }).Parse(uploadsHTML))
 
+// adminTmpl is the parsed admin template
 var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 	"fmtDate": func(t time.Time) string {
 		if t.IsZero() {
@@ -191,7 +199,335 @@ var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 	"summary":    internal.SummarizeLimits,
 }).Parse(adminHTML))
 
+// init initializes the admin template with the login and dashboard HTML
 func init() {
 	template.Must(adminTmpl.New("login").Parse(loginHTML))
 	template.Must(adminTmpl.New("dashboard").Parse(dashboardHTML))
+}
+
+// inlineFormattingElements is a map of HTML tags that are inline formatting elements
+var inlineFormattingElements = map[string]bool{
+	"a":      true,
+	"span":   true,
+	"strong": true,
+	"em":     true,
+	"code":   true,
+	"i":      true,
+	"b":      true,
+	"u":      true,
+	"kbd":    true,
+	"small":  true,
+	"sub":    true,
+	"sup":    true,
+	"abbr":   true,
+	"cite":   true,
+	"time":   true,
+	"dfn":    true,
+	"mark":   true,
+	"q":      true,
+	"samp":   true,
+}
+
+// isStandaloneTag returns true if the given node is a standalone tag (i.e. not an inline formatting element)
+func isStandaloneTag(n *html.Node) bool {
+	if n.Type != html.ElementNode {
+		return false
+	}
+	return !inlineFormattingElements[n.Data]
+}
+
+// shouldStructure returns true if the given node should be structured (i.e. it has children or is a standalone tag)
+func shouldStructure(n *html.Node) bool {
+	if n.Type != html.ElementNode {
+		return false
+	}
+
+	// Always structure these tags if they contain any children
+	switch n.Data {
+	case "div", "form", "fieldset", "dialog", "table", "tbody", "thead", "tr", "html", "body", "head", "details", "summary", "ul", "ol", "li", "select", "label":
+		return n.FirstChild != nil
+	}
+
+	// For other block tags, check if they have structured children or standalone elements
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.ElementNode {
+			if shouldStructure(c) || isStandaloneTag(c) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// isSelfClosing returns true if the given tag is a self-closing tag
+func isSelfClosing(tag string) bool {
+	switch tag {
+	case "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr":
+		return true
+	}
+	return false
+}
+
+// renderNormalizedInline renders the given node as inline content, normalizing whitespace
+func renderNormalizedInline(w io.Writer, n *html.Node, isFirst, isLast bool) {
+	if n.Type == html.TextNode {
+		parentTag := ""
+		if n.Parent != nil {
+			parentTag = n.Parent.Data
+		}
+		if parentTag == "pre" || parentTag == "textarea" {
+			io.WriteString(w, n.Data)
+			return
+		}
+
+		text := n.Data
+		text = strings.ReplaceAll(text, "\t", " ")
+		text = strings.ReplaceAll(text, "\n", " ")
+		text = strings.ReplaceAll(text, "\r", " ")
+		for strings.Contains(text, "  ") {
+			text = strings.ReplaceAll(text, "  ", " ")
+		}
+		if isFirst {
+			text = strings.TrimLeft(text, " ")
+		}
+		if isLast {
+			text = strings.TrimRight(text, " ")
+		}
+		io.WriteString(w, html.EscapeString(text))
+		return
+	}
+
+	if n.Type == html.CommentNode {
+		io.WriteString(w, "<!--")
+		io.WriteString(w, n.Data)
+		io.WriteString(w, "-->")
+		return
+	}
+
+	if n.Type == html.ElementNode {
+		io.WriteString(w, "<")
+		io.WriteString(w, n.Data)
+		for _, attr := range n.Attr {
+			io.WriteString(w, " ")
+			if attr.Namespace != "" {
+				io.WriteString(w, attr.Namespace)
+				io.WriteString(w, ":")
+			}
+			io.WriteString(w, attr.Key)
+			io.WriteString(w, `="`)
+			io.WriteString(w, html.EscapeString(attr.Val))
+			io.WriteString(w, `"`)
+		}
+		if isSelfClosing(n.Data) {
+			io.WriteString(w, " />")
+			return
+		}
+		io.WriteString(w, ">")
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			renderNormalizedInline(w, c, false, false)
+		}
+		io.WriteString(w, "</")
+		io.WriteString(w, n.Data)
+		io.WriteString(w, ">")
+	}
+}
+
+// flushInline flushes the inline nodes to the output writer
+func flushInline(w io.Writer, nodes []*html.Node, depth int) {
+	if len(nodes) == 0 {
+		return
+	}
+	start := 0
+	for start < len(nodes) {
+		if nodes[start].Type == html.TextNode && strings.TrimSpace(nodes[start].Data) == "" {
+			start++
+		} else {
+			break
+		}
+	}
+	end := len(nodes) - 1
+	for end >= start {
+		if nodes[end].Type == html.TextNode && strings.TrimSpace(nodes[end].Data) == "" {
+			end--
+		} else {
+			break
+		}
+	}
+	if start > end {
+		return
+	}
+
+	writeIndent(w, depth)
+	for i := start; i <= end; i++ {
+		isFirst := (i == start)
+		isLast := (i == end)
+		renderNormalizedInline(w, nodes[i], isFirst, isLast)
+	}
+	io.WriteString(w, "\n")
+}
+
+// writeIndent writes the indentation for the given depth
+func writeIndent(w io.Writer, depth int) {
+	for range depth {
+		io.WriteString(w, "    ")
+	}
+}
+
+// prettyPrint recursively prints the HTML node with indentation
+func prettyPrint(w io.Writer, n *html.Node, depth int) {
+	if n.Type == html.DocumentNode {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			prettyPrint(w, c, depth)
+		}
+		return
+	}
+
+	if n.Type == html.CommentNode {
+		writeIndent(w, depth)
+		io.WriteString(w, "<!--")
+		io.WriteString(w, n.Data)
+		io.WriteString(w, "-->\n")
+		return
+	}
+
+	if n.Type == html.DoctypeNode {
+		io.WriteString(w, "<!doctype ")
+		io.WriteString(w, n.Data)
+		io.WriteString(w, ">\n")
+		return
+	}
+
+	if n.Type == html.TextNode {
+		parentTag := ""
+		if n.Parent != nil {
+			parentTag = n.Parent.Data
+		}
+		if parentTag == "script" || parentTag == "style" || parentTag == "pre" || parentTag == "textarea" {
+			io.WriteString(w, n.Data)
+			return
+		}
+		text := strings.TrimSpace(n.Data)
+		if text != "" {
+			io.WriteString(w, html.EscapeString(text))
+		}
+		return
+	}
+
+	if n.Data == "script" || n.Data == "style" || n.Data == "pre" || n.Data == "textarea" {
+		writeIndent(w, depth)
+		io.WriteString(w, "<")
+		io.WriteString(w, n.Data)
+		for _, attr := range n.Attr {
+			io.WriteString(w, " ")
+			if attr.Namespace != "" {
+				io.WriteString(w, attr.Namespace)
+				io.WriteString(w, ":")
+			}
+			io.WriteString(w, attr.Key)
+			io.WriteString(w, `="`)
+			io.WriteString(w, html.EscapeString(attr.Val))
+			io.WriteString(w, `"`)
+		}
+		io.WriteString(w, ">")
+
+		var textContent string
+		hasNewline := false
+		if n.FirstChild != nil && n.FirstChild.Type == html.TextNode {
+			textContent = n.FirstChild.Data
+			hasNewline = strings.Contains(textContent, "\n")
+		}
+
+		if hasNewline {
+			io.WriteString(w, "\n")
+			if n.Data == "script" || n.Data == "style" {
+				lines := strings.SplitSeq(textContent, "\n")
+				for line := range lines {
+					trimmed := strings.TrimSpace(line)
+					if trimmed != "" {
+						writeIndent(w, depth+1)
+						io.WriteString(w, trimmed)
+						io.WriteString(w, "\n")
+					}
+				}
+			} else {
+				io.WriteString(w, textContent)
+			}
+			writeIndent(w, depth)
+		} else {
+			io.WriteString(w, textContent)
+		}
+
+		io.WriteString(w, "</")
+		io.WriteString(w, n.Data)
+		io.WriteString(w, ">\n")
+		return
+	}
+
+	writeIndent(w, depth)
+	io.WriteString(w, "<")
+	io.WriteString(w, n.Data)
+	for _, attr := range n.Attr {
+		io.WriteString(w, " ")
+		if attr.Namespace != "" {
+			io.WriteString(w, attr.Namespace)
+			io.WriteString(w, ":")
+		}
+		io.WriteString(w, attr.Key)
+		io.WriteString(w, `="`)
+		io.WriteString(w, html.EscapeString(attr.Val))
+		io.WriteString(w, `"`)
+	}
+
+	if isSelfClosing(n.Data) {
+		io.WriteString(w, " />\n")
+		return
+	}
+	io.WriteString(w, ">")
+
+	if shouldStructure(n) {
+		io.WriteString(w, "\n")
+		var inlineAccum []*html.Node
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			if shouldStructure(c) || c.Type == html.CommentNode || isStandaloneTag(c) {
+				flushInline(w, inlineAccum, depth+1)
+				inlineAccum = nil
+				prettyPrint(w, c, depth+1)
+			} else {
+				inlineAccum = append(inlineAccum, c)
+			}
+		}
+		flushInline(w, inlineAccum, depth+1)
+		writeIndent(w, depth)
+	} else {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			renderNormalizedInline(w, c, false, false)
+		}
+	}
+
+	io.WriteString(w, "</")
+	io.WriteString(w, n.Data)
+	io.WriteString(w, ">\n")
+}
+
+// renderTemplate renders the given template with the given data, writing the result to the response writer
+func renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		log.Printf("template execution error: %v", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	doc, err := html.Parse(&buf)
+	if err != nil {
+		log.Printf("html parse error: %v", err)
+		w.Write(buf.Bytes())
+		return
+	}
+
+	var prettyBuf bytes.Buffer
+	prettyPrint(&prettyBuf, doc, 0)
+	w.Write(prettyBuf.Bytes())
 }

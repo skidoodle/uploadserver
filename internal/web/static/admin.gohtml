@@ -16,11 +16,12 @@
 
 <body>
     <h1>uploadserver</h1>
-    {{if .LoggedIn}} {{template "dashboard" .}}
+    {{if .LoggedIn}}
+    {{template "dashboard" .}}
     <script src="/_/admin.js"></script>
-    {{else}} {{template "login" .}}
+    {{else}}
+    {{template "login" .}}
     <script src="/_/login.js"></script>
     {{end}}
 </body>
-
 </html>

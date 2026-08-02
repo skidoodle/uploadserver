@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,18 +39,22 @@ func setCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAg
 	})
 }
 
+// clearCookie clears the cookie with the given name
 func clearCookie(w http.ResponseWriter, r *http.Request, name string) {
 	setCookie(w, r, name, "", -1)
 }
 
+// setAdminCookie sets the admin cookie with the given secret
 func setAdminCookie(w http.ResponseWriter, r *http.Request, secret string) {
 	setCookie(w, r, adminCookieName, secret, 0)
 }
 
+// setCSRFCookie sets the CSRF cookie with the given token
 func setCSRFCookie(w http.ResponseWriter, r *http.Request, token string) {
 	setCookie(w, r, csrfCookieName, token, 0)
 }
 
+// generateCSRF generates a random CSRF token
 func generateCSRF() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -74,11 +77,9 @@ func validateCSRF(r *http.Request) bool {
 	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(form)) == 1
 }
 
+// renderAdmin renders the admin page with the given data
 func (s *server) renderAdmin(w http.ResponseWriter, data adminPageData) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := adminTmpl.Execute(w, data); err != nil {
-		log.Printf("admin template error: %v", err)
-	}
+	renderTemplate(w, adminTmpl, data)
 }
 
 // requireAdminCookie gates the SSR mutation handlers. It returns true only when
@@ -400,6 +401,7 @@ func (s *server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleDeleteToken deletes a token by its ID
 func (s *server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -693,10 +695,7 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 		Query:           query,
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := uploadsTmpl.Execute(w, data); err != nil {
-		log.Printf("uploads template error: %v", err)
-	}
+	renderTemplate(w, uploadsTmpl, data)
 }
 
 // handleAPITokenUploads returns JSON upload history for token id.

@@ -333,6 +333,40 @@ dialog {
 #renamedlg {
     width: 24rem;
     max-width: calc(100vw - 2rem);
+
+    .dlg-label {
+        margin-bottom: 0.4rem;
+    }
+}
+
+#giveawaydlg {
+    width: 24rem;
+    max-width: calc(100vw - 2rem);
+}
+
+.dlg-title {
+    margin-top: 0;
+    font-weight: 600;
+}
+
+.dlg-desc {
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    margin-bottom: 0.8rem;
+}
+
+.dlg-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-bottom: 0.8rem;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+
+    input {
+        width: 100%;
+        box-sizing: border-box;
+    }
 }
 
 #limdlg {

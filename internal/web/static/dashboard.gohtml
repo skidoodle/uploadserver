@@ -124,13 +124,16 @@
                     {{end}}
                     {{end}}
                     <div class="ctx-sep"></div>
-                    <button type="button" class="ctx-item ctx-danger" data-delete-id="{{.ID}}">Delete</button>
+                        <button type="button" class="ctx-item ctx-danger" data-delete-id="{{.ID}}">Delete</button>
+                    </div>
                 </div>
-            </div>{{end}}</td>
+            {{end}}
+            </td>
         </tr>
         {{end}}
     </tbody>
 </table>
+
 <dialog id="dlg">
     <form method="POST" id="dlgForm" action="">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
@@ -141,6 +144,7 @@
         </div>
     </form>
 </dialog>
+
 <dialog id="roledlg">
     <form method="POST" id="roleForm" action="">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
@@ -152,6 +156,7 @@
         </div>
     </form>
 </dialog>
+
 <dialog id="limdlg">
     <form method="POST" id="limForm" action="">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
@@ -176,9 +181,11 @@
         </div>
     </form>
 </dialog>
+
 {{else}}
 {{if .CurrentToken}}
 {{if gt .CurrentToken.Invites 0}}
+
 <fieldset>
     <legend>create token</legend>
     <form method="POST" action="/tokens/invite" id="inviteForm" class="bar">
@@ -190,7 +197,9 @@
     </form>
     <div id="invite-err" class="label-err" hidden></div>
 </fieldset>
+
 {{end}}
+
 <fieldset>
     <legend>user profile</legend>
     <table class="profile-table">
@@ -240,18 +249,18 @@
         </form>
     </div>
 </fieldset>
+
 {{end}}
 {{end}}
 
 <dialog id="renamedlg">
     <form method="POST" id="renameForm" action="">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
-        <p>Rename token <code id="renameTarget"></code></p>
-        <label style="display:flex; flex-direction:column; gap: 0.35rem; margin-bottom: 0.4rem; font-size: 0.85rem; color: var(--fg-muted);">New Label
+        <p class="dlg-title">Rename token <code id="renameTarget"></code></p>
+        <label class="dlg-label">New Label
             <input name="label" id="renameInput" required
                 pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
-                title="1-9 alphanumeric characters (can contain _ or - inside)."
-                style="width: 100%; box-sizing: border-box;">
+                title="1-9 alphanumeric characters (can contain _ or - inside).">
         </label>
         <div id="rename-err" class="label-err" hidden></div>
         <div class="bar bar-end">
@@ -264,10 +273,10 @@
 <dialog id="giveawaydlg">
     <form method="POST" action="/tokens/giveaway">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
-        <p style="margin-top: 0; font-weight: 600;">Giveaway Invites</p>
-        <p style="font-size: 0.85rem; color: var(--fg-muted); margin-bottom: 0.8rem;">Grant additional invite credits to all users with the <code>upload</code> role.</p>
-        <label style="display:flex; flex-direction:column; gap: 0.35rem; margin-bottom: 0.8rem; font-size: 0.85rem; color: var(--fg-muted);">Invites per user
-            <input type="number" name="count" min="1" max="100" value="1" required style="width: 100%; box-sizing: border-box;">
+        <p class="dlg-title">Giveaway Invites</p>
+        <p class="dlg-desc">Grant additional invite credits to all users with the <code>upload</code> role.</p>
+        <label class="dlg-label">Invites per user
+            <input type="number" name="count" min="1" max="100" value="1" required>
         </label>
         <div class="bar bar-end">
             <button type="button" data-cancel>Cancel</button>

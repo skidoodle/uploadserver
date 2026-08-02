@@ -34,7 +34,6 @@
             {{end}}
         </form>
     </div>
-
     {{if .Uploads}}
     <div class="file-list" id="fileList">
         <div class="file-header">
@@ -44,14 +43,15 @@
             <span class="fh-size">Size</span>
             <span class="fh-date">Uploaded</span>
         </div>
+
         {{range .Uploads}}
         <div class="file-row">
             <span class="file-preview" data-preview-url="{{fileURL $.BaseURL .Name}}" data-file-name="{{stripExt .Name}}">
-                {{if isImage .Name}}
-                    <img src="{{fileURL $.BaseURL .Name}}" loading="lazy" alt="{{stripExt .Name}}">
-                {{else}}
-                    <span class="file-icon-fallback">{{fileIcon .Name}}</span>
-                {{end}}
+            {{if isImage .Name}}
+                <img src="{{fileURL $.BaseURL .Name}}" loading="lazy" alt="{{stripExt .Name}}">
+            {{else}}
+                <span class="file-icon-fallback">{{fileIcon .Name}}</span>
+            {{end}}
             </span>
             <span class="file-name"><a href="{{fileURL $.BaseURL .Name}}" target="_blank" rel="noopener">{{stripExt .Name}}</a></span>
             <span class="file-ext"><span class="ext-badge">{{fileExt .Name}}</span></span>
@@ -60,6 +60,7 @@
         </div>
         {{end}}
     </div>
+
     {{if gt .TotalPages 1}}
     <div class="pager-bar">
         <div>Showing <strong>{{.PageStart}}–{{.PageEnd}}</strong> of <strong>{{.TotalFiles}}</strong> files</div>
@@ -103,7 +104,6 @@
         {{end}}
     </div>
     {{end}}
-
     <dialog id="imgModal" class="lightbox-dialog">
         <div class="lightbox-content">
             <img id="modalImg" class="lightbox-img" src="" alt="Preview">
