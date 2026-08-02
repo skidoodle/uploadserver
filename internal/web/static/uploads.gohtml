@@ -1,123 +1,123 @@
 <!doctype html>
 <html lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-    <meta name="color-scheme" content="dark light" />
-    <link rel="icon" href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" />
-    <title>uploadserver · {{.Token.Label}} uploads</title>
-    <link rel="stylesheet" href="/_/admin.css" />
-    <link rel="stylesheet" href="/_/uploads.css" />
-</head>
-<body>
-    <h1>uploadserver</h1>
-    <nav class="breadcrumb">
-        <a href="/">dashboard</a>
-        <span class="sep">›</span>
-        <span>uploads</span>
-        <span class="sep">›</span>
-        <span>{{.Token.ID}}</span>
-    </nav>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+		<meta name="color-scheme" content="dark light" />
+		<link rel="icon" href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" />
+		<title>uploadserver · {{ .Token.Label }} uploads</title>
+		<link rel="stylesheet" href="/_/admin.css" />
+		<link rel="stylesheet" href="/_/uploads.css" />
+	</head>
+	<body>
+		<h1>uploadserver</h1>
+		<nav class="breadcrumb">
+			<a href="/">dashboard</a>
+			<span class="sep">›</span>
+			<span>uploads</span>
+			<span class="sep">›</span>
+			<span>{{ .Token.ID }}</span>
+		</nav>
 
-    <div class="toolbar-bar">
-        <div class="summary-bar">
-            {{if gt .TotalUnfiltered 0}}
-            <span class="stat"><strong>{{.TotalFiles}}</strong> matching file{{if ne .TotalFiles 1}}s{{end}} (of {{.TotalUnfiltered}})</span>
-            {{else}}
-            <span class="stat"><strong>{{.TotalFiles}}</strong> file{{if ne .TotalFiles 1}}s{{end}}</span>
-            {{end}}
-        </div>
-        <form class="search-box" method="GET" action="" id="searchForm">
-            <svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-            <input type="search" name="q" id="searchInput" value="{{.Query}}" placeholder="Search all files…" aria-label="Search files" autocomplete="off" spellcheck="false" />
-            {{if .Query}}
-            <button type="button" id="searchClear" class="search-clear-btn" aria-label="Clear search">&times;</button>
-            {{end}}
-        </form>
-    </div>
-    {{if .Uploads}}
-    <div class="file-list" id="fileList">
-        <div class="file-header">
-            <span class="fh-preview"></span>
-            <span class="fh-name">Name</span>
-            <span class="fh-type">Type</span>
-            <span class="fh-size">Size</span>
-            <span class="fh-date">Uploaded</span>
-        </div>
+		<div class="toolbar-bar">
+			<div class="summary-bar">
+				{{ if gt .TotalUnfiltered 0 }}
+					<span class="stat"><strong>{{ .TotalFiles }}</strong> matching file{{ if ne .TotalFiles 1 }}s{{ end }} (of {{ .TotalUnfiltered }})</span>
+				{{ else }}
+					<span class="stat"><strong>{{ .TotalFiles }}</strong> file{{ if ne .TotalFiles 1 }}s{{ end }}</span>
+				{{ end }}
+			</div>
+			<form class="search-box" method="GET" action="" id="searchForm">
+				<svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+				<input type="search" name="q" id="searchInput" value="{{ .Query }}" placeholder="Search all files…" aria-label="Search files" autocomplete="off" spellcheck="false" />
+				{{ if .Query }}
+					<button type="button" id="searchClear" class="search-clear-btn" aria-label="Clear search">&times;</button>
+				{{ end }}
+			</form>
+		</div>
+		{{ if .Uploads }}
+			<div class="file-list" id="fileList">
+				<div class="file-header">
+					<span class="fh-preview"></span>
+					<span class="fh-name">Name</span>
+					<span class="fh-type">Type</span>
+					<span class="fh-size">Size</span>
+					<span class="fh-date">Uploaded</span>
+				</div>
 
-        {{range .Uploads}}
-        <div class="file-row">
-            <span class="file-preview" data-preview-url="{{fileURL $.BaseURL .Name}}" data-file-name="{{stripExt .Name}}">
-            {{if isImage .Name}}
-                <img src="{{fileURL $.BaseURL .Name}}" loading="lazy" alt="{{stripExt .Name}}">
-            {{else}}
-                <span class="file-icon-fallback">{{fileIcon .Name}}</span>
-            {{end}}
-            </span>
-            <span class="file-name"><a href="{{fileURL $.BaseURL .Name}}" target="_blank" rel="noopener">{{stripExt .Name}}</a></span>
-            <span class="file-ext"><span class="ext-badge">{{fileExt .Name}}</span></span>
-            <span class="file-size">{{humanBytes .Size}}</span>
-            <span class="file-date">{{fmtDate .UploadedAt}}</span>
-        </div>
-        {{end}}
-    </div>
+				{{ range .Uploads }}
+					<div class="file-row">
+						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name }}" data-file-name="{{ stripExt .Name }}">
+							{{ if isImage .Name }}
+								<img src="{{ fileURL $.BaseURL .Name }}" loading="lazy" alt="{{ stripExt .Name }}">
+							{{ else }}
+								<span class="file-icon-fallback">{{ fileIcon .Name }}</span>
+							{{ end }}
+						</span>
+						<span class="file-name"><a href="{{ fileURL $.BaseURL .Name }}" target="_blank" rel="noopener">{{ stripExt .Name }}</a></span>
+						<span class="file-ext"><span class="ext-badge">{{ fileExt .Name }}</span></span>
+						<span class="file-size">{{ humanBytes .Size }}</span>
+						<span class="file-date">{{ fmtDate .UploadedAt }}</span>
+					</div>
+				{{ end }}
+			</div>
 
-    {{if gt .TotalPages 1}}
-    <div class="pager-bar">
-        <div>Showing <strong>{{.PageStart}}–{{.PageEnd}}</strong> of <strong>{{.TotalFiles}}</strong> files</div>
-        <div class="pager-controls">
-            {{if gt .Page 1}}
-            <a href="{{pageURL (sub .Page 1) .Query}}" class="pager-btn">Prev</a>
-            {{else}}
-            <span class="pager-btn" disabled>Prev</span>
-            {{end}}
+			{{ if gt .TotalPages 1 }}
+				<div class="pager-bar">
+					<div>Showing <strong>{{ .PageStart }}–{{ .PageEnd }}</strong> of <strong>{{ .TotalFiles }}</strong> files</div>
+					<div class="pager-controls">
+						{{ if gt .Page 1 }}
+							<a href="{{ pageURL (sub .Page 1) .Query }}" class="pager-btn">Prev</a>
+						{{ else }}
+							<span class="pager-btn" disabled>Prev</span>
+						{{ end }}
 
-            {{$cur := .Page}}
-            {{$max := .TotalPages}}
-            {{$q := .Query}}
-            {{$prev := 0}}
-            {{range $p := pageRange $cur $max}}
-                {{if gt (sub $p $prev) 1}}
-                <span class="pager-dots">…</span>
-                {{end}}
-                {{if eq $p $cur}}
-                <span class="pager-btn active">{{$p}}</span>
-                {{else}}
-                <a href="{{pageURL $p $q}}" class="pager-btn">{{$p}}</a>
-                {{end}}
-                {{$prev = $p}}
-            {{end}}
+						{{ $cur := .Page }}
+						{{ $max := .TotalPages }}
+						{{ $q := .Query }}
+						{{ $prev := 0 }}
+						{{ range $p := pageRange $cur $max }}
+							{{ if gt (sub $p $prev) 1 }}
+								<span class="pager-dots">…</span>
+							{{ end }}
+							{{ if eq $p $cur }}
+								<span class="pager-btn active">{{ $p }}</span>
+							{{ else }}
+								<a href="{{ pageURL $p $q }}" class="pager-btn">{{ $p }}</a>
+							{{ end }}
+							{{ $prev = $p }}
+						{{ end }}
 
-            {{if lt .Page .TotalPages}}
-            <a href="{{pageURL (add .Page 1) .Query}}" class="pager-btn">Next</a>
-            {{else}}
-            <span class="pager-btn" disabled>Next</span>
-            {{end}}
-        </div>
-    </div>
-    {{end}}
-    {{else}}
-    <div class="file-list">
-        {{if .Query}}
-        <div class="empty-state">No files matching &ldquo;{{.Query}}&rdquo;</div>
-        {{else}}
-        <div class="empty-state">No uploads recorded yet.</div>
-        {{end}}
-    </div>
-    {{end}}
-    <dialog id="imgModal" class="lightbox-dialog">
-        <div class="lightbox-content">
-            <img id="modalImg" class="lightbox-img" src="" alt="Preview">
-            <div class="lightbox-footer">
-                <span id="modalTitle" class="mono"></span>
-                <div class="lightbox-actions">
-                    <a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
-                    <button type="button" id="modalClose" class="act-btn">Close</button>
-                </div>
-            </div>
-        </div>
-    </dialog>
+						{{ if lt .Page .TotalPages }}
+							<a href="{{ pageURL (add .Page 1) .Query }}" class="pager-btn">Next</a>
+						{{ else }}
+							<span class="pager-btn" disabled>Next</span>
+						{{ end }}
+					</div>
+				</div>
+			{{ end }}
+		{{ else }}
+			<div class="file-list">
+				{{ if .Query }}
+					<div class="empty-state">No files matching &ldquo;{{ .Query }}&rdquo;</div>
+				{{ else }}
+					<div class="empty-state">No uploads recorded yet.</div>
+				{{ end }}
+			</div>
+		{{ end }}
+		<dialog id="imgModal" class="lightbox-dialog">
+			<div class="lightbox-content">
+				<img id="modalImg" class="lightbox-img" src="" alt="Preview">
+				<div class="lightbox-footer">
+					<span id="modalTitle" class="mono"></span>
+					<div class="lightbox-actions">
+						<a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
+						<button type="button" id="modalClose" class="act-btn">Close</button>
+					</div>
+				</div>
+			</div>
+		</dialog>
 
     <script src="/_/uploads.js"></script>
-</body>
+	</body>
 </html>
