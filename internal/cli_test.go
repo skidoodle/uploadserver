@@ -112,6 +112,15 @@ func TestCLI_SubcommandsAndErrorCases(t *testing.T) {
 		}
 	})
 
+	t.Run("Migrate Command", func(t *testing.T) {
+		if err := RunTokenCLI([]string{"migrate"}); err == nil {
+			t.Error("migrate command without --token expected error")
+		}
+		if err := RunTokenCLI([]string{"migrate", "--token", "nonexistent"}); err == nil {
+			t.Error("migrate command with nonexistent token expected error")
+		}
+	})
+
 	t.Run("Remove and Reset Commands", func(t *testing.T) {
 		if err := RunTokenCLI([]string{"rm"}); err == nil {
 			t.Error("rm command without ID expected error")

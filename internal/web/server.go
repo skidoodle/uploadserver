@@ -10,8 +10,9 @@ import (
 
 // server bundles the resolved config with the shared token store.
 type server struct {
-	cfg   internal.Config
-	store *internal.TokenStore
+	cfg       internal.Config
+	store     *internal.TokenStore
+	fileIndex *internal.FileIndex
 }
 
 // routes defines the HTTP routes for the server.
@@ -20,9 +21,9 @@ func (s *server) routes() http.Handler {
 
 	mux.HandleFunc("POST /{$}", s.handleUpload)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
-
 	if s.cfg.ServeFiles {
 		mux.HandleFunc("GET /", s.handleFileServer)
+		mux.HandleFunc("DELETE /", s.handleDeleteFile)
 	}
 
 	if s.cfg.AdminEnabled {
@@ -47,8 +48,10 @@ func (s *server) routes() http.Handler {
 		mux.HandleFunc("POST /_/tokens/giveaway", s.handleGiveawaySSR)
 		mux.HandleFunc("POST /_/tokens/{id}/toggle", s.handleAdminToggleTokenSSR)
 		mux.HandleFunc("POST /_/tokens/{id}/delete", s.handleAdminDeleteTokenSSR)
+		mux.HandleFunc("POST /_/tokens/{id}/purge-media", s.handlePurgeUserMediaSSR)
 		mux.HandleFunc("POST /_/tokens/{id}/limits", s.handleAdminSetLimitsSSR)
 		mux.HandleFunc("POST /_/tokens/{id}/label", s.handleSetLabelSSR)
+		mux.HandleFunc("POST /_/files/delete", s.handleDeleteFileSSR)
 		mux.HandleFunc("POST /_/tokens/{id}/role", s.handleAdminSetRoleSSR)
 		mux.HandleFunc("POST /_/global/limits", s.handleAdminSetGlobalLimitsSSR)
 		mux.HandleFunc("POST /_/invite-policy", s.handleSetInvitePolicySSR)
@@ -56,6 +59,9 @@ func (s *server) routes() http.Handler {
 		mux.HandleFunc("POST /_/api/tokens", s.handleCreateToken)
 		mux.HandleFunc("POST /_/api/tokens/giveaway", s.handleGiveawayAPI)
 		mux.HandleFunc("DELETE /_/api/tokens/{id}", s.handleDeleteToken)
+		mux.HandleFunc("DELETE /_/api/purge", s.handlePurgeMedia)
+		mux.HandleFunc("DELETE /_/api/account", s.handleDeleteAccount)
+		mux.HandleFunc("DELETE /_/api/tokens/{id}/media", s.handleAdminPurgeUserMedia)
 		mux.HandleFunc("POST /_/api/tokens/{id}/disable", s.handleSetDisabled(true))
 		mux.HandleFunc("POST /_/api/tokens/{id}/enable", s.handleSetDisabled(false))
 		mux.HandleFunc("POST /_/api/tokens/{id}/limits", s.handleSetLimits)

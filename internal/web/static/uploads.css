@@ -649,3 +649,30 @@ span.pager-btn[disabled] {
         font-size: 0.82rem;
     }
 }
+
+.file-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+}
+
+.file-actions form {
+    margin: 0;
+    padding: 0;
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95rem;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    opacity: 0.65;
+    transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.icon-btn:hover {
+    opacity: 1;
+    background: rgba(220, 38, 38, 0.15);
+}

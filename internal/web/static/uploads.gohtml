@@ -19,12 +19,19 @@
 			<span>{{ .Token.ID }}</span>
 		</nav>
 
+		{{ if .Error }}
+			<p id="msg" class="err">{{ .Error }}</p>
+		{{ end }}
+
 		<div class="toolbar-bar">
 			<div class="summary-bar">
 				{{ if gt .TotalUnfiltered 0 }}
 					<span class="stat"><strong>{{ .TotalFiles }}</strong> matching file{{ if ne .TotalFiles 1 }}s{{ end }} (of {{ .TotalUnfiltered }})</span>
 				{{ else }}
 					<span class="stat"><strong>{{ .TotalFiles }}</strong> file{{ if ne .TotalFiles 1 }}s{{ end }}</span>
+				{{ end }}
+				{{ if or $.IsAdmin $.IsSelf }}
+					<button type="button" class="act danger" data-purge-id="{{ .Token.ID }}">Purge All Media</button>
 				{{ end }}
 			</div>
 			<form class="search-box" method="GET" action="" id="searchForm">
@@ -43,23 +50,31 @@
 					<span class="fh-type">Type</span>
 					<span class="fh-size">Size</span>
 					<span class="fh-date">Uploaded</span>
+					{{ if or $.IsAdmin $.IsSelf }}
+						<span class="fh-actions"></span>
+					{{ end }}
 				</div>
 
 				{{ range .Uploads }}
 					<div class="file-row">
-						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name }}" data-file-name="{{ stripExt .Name }}" data-is-media="{{ if isMedia .Name }}true{{ else }}false{{ end }}" data-media-type="{{ if isVideo .Name }}video{{ else if isImage .Name }}image{{ else }}other{{ end }}">
+						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name $.StripExtension }}" data-file-name="{{ stripExt .Name }}" data-raw-name="{{ .Name }}" data-is-media="{{ if isMedia .Name }}true{{ else }}false{{ end }}" data-media-type="{{ if isVideo .Name }}video{{ else if isImage .Name }}image{{ else }}other{{ end }}">
 							{{ if isImage .Name }}
-								<img src="{{ fileURL $.BaseURL .Name }}" loading="lazy" alt="{{ stripExt .Name }}">
+								<img src="{{ fileURL $.BaseURL .Name $.StripExtension }}" loading="lazy" alt="{{ stripExt .Name }}">
 							{{ else if isVideo .Name }}
 								<span class="file-icon-fallback">🎥</span>
 							{{ else }}
 								<span class="file-icon-fallback">{{ fileIcon .Name }}</span>
 							{{ end }}
 						</span>
-						<span class="file-name"><a href="{{ fileURL $.BaseURL .Name }}" target="_blank" rel="noopener">{{ stripExt .Name }}</a></span>
+						<span class="file-name"><a href="{{ fileURL $.BaseURL .Name $.StripExtension }}" target="_blank" rel="noopener">{{ stripExt .Name }}</a></span>
 						<span class="file-ext"><span class="ext-badge">{{ fileExt .Name }}</span></span>
 						<span class="file-size">{{ humanBytes .Size }}</span>
 						<span class="file-date">{{ fmtDate .UploadedAt }}</span>
+						{{ if or $.IsAdmin $.IsSelf }}
+							<span class="file-actions">
+								<button type="button" class="act danger icon-btn" data-delete-filename="{{ .Name }}" title="Delete file">🗑️</button>
+							</span>
+						{{ end }}
 					</div>
 				{{ end }}
 			</div>
@@ -101,7 +116,7 @@
 		{{ else }}
 			<div class="file-list">
 				{{ if .Query }}
-					<div class="empty-state">No files matching &ldquo;{{ .Query }}&rdquo;</div>
+					<div class="empty-state">No files matching "{{ .Query }}".</div>
 				{{ else }}
 					<div class="empty-state">No uploads recorded yet.</div>
 				{{ end }}
@@ -125,12 +140,39 @@
 					</div>
 					<div class="lightbox-actions">
 						<a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
+						{{ if or $.IsAdmin $.IsSelf }}
+							<button type="button" id="modalDeleteBtn" class="act-btn danger">Delete File</button>
+						{{ end }}
 						<button type="button" id="modalClose" class="act-btn">Close</button>
 					</div>
 				</div>
 			</div>
 		</dialog>
 
-    <script src="/_/uploads.js"></script>
+		<dialog id="filedel-dlg">
+			<form method="POST" action="/_/files/delete" id="filedel-form">
+				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+				<input type="hidden" name="filename" id="filedel-input" value="">
+				<p id="filedel-msg">Delete file permanently?</p>
+				<div class="bar bar-end">
+					<button type="button" data-cancel>Cancel</button>
+					<button type="submit" class="danger">Delete File</button>
+				</div>
+			</form>
+		</dialog>
+
+		<dialog id="purgedlg">
+			<form method="POST" id="purgeForm" action="">
+				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+				<p id="purgedlgmsg"></p>
+				<div class="bar bar-end">
+					<button type="button" data-cancel>Cancel</button>
+					<button type="submit" class="danger">Purge Media</button>
+				</div>
+			</form>
+		</dialog>
+
+		<script src="/_/admin.js"></script>
+		<script src="/_/uploads.js"></script>
 	</body>
 </html>

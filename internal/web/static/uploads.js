@@ -30,6 +30,7 @@
       items.push({
         url: p.dataset.previewUrl,
         name: p.dataset.fileName,
+        rawName: p.dataset.rawName || p.dataset.fileName,
         type: p.dataset.mediaType || 'image',
         page: pageNum
       });
@@ -83,6 +84,10 @@
 
     modalTitle.textContent = item.name;
     modalDownload.href = item.url;
+    const modalDeleteFilename = document.getElementById('modalDeleteFilename');
+    if (modalDeleteFilename) {
+      modalDeleteFilename.value = item.rawName || item.name;
+    }
 
     if (modalPrev) {
       const canPrev = currentIndex > 0 || lowestLoadedPage > 1;

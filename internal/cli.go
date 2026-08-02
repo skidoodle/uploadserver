@@ -28,6 +28,7 @@ Commands:
   limit <id> [flags]         Set upload quotas for a token (use --help for flags)
   global [flags]             Show or set the server-wide default quota
   scan [--token ID]          Find untracked files on disk and optionally import them
+  migrate --token <id>       Move flat uploads into per-user directories
   prune [--days N] [--dry-run] Purge temporary upload files older than N days
   export [--out file.json]   Export token store metadata to JSON
   import [--in file.json]    Import token store metadata from JSON
@@ -152,6 +153,9 @@ func RunTokenCLI(args []string) (err error) {
 
 	case "scan":
 		return runScan(store, args[1:])
+
+	case "migrate":
+		return runMigrate(store, args[1:])
 
 	case "export":
 		return runExport(store, args[1:])
@@ -377,7 +381,7 @@ func runScan(store *TokenStore, args []string) error {
 		}
 	}
 
-	// Walk the upload directory.
+	// Walk the upload directory, including per-user subdirectories.
 	dirEntries, err := os.ReadDir(uploadDir)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", uploadDir, err)
@@ -389,6 +393,8 @@ func runScan(store *TokenStore, args []string) error {
 		modTime time.Time
 	}
 	var untracked []untrackedFile
+
+	// Check flat files in the root directory.
 	for _, de := range dirEntries {
 		if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
 			continue
@@ -405,6 +411,34 @@ func runScan(store *TokenStore, args []string) error {
 			size:    info.Size(),
 			modTime: info.ModTime().UTC(),
 		})
+	}
+
+	// Check files inside per-user subdirectories.
+	for _, de := range dirEntries {
+		if !de.IsDir() || strings.HasPrefix(de.Name(), ".") || strings.HasPrefix(de.Name(), "_") {
+			continue
+		}
+		subEntries, err := os.ReadDir(filepath.Join(uploadDir, de.Name()))
+		if err != nil {
+			continue
+		}
+		for _, sub := range subEntries {
+			if sub.IsDir() || strings.HasPrefix(sub.Name(), ".") {
+				continue
+			}
+			if tracked[sub.Name()] {
+				continue
+			}
+			info, err := sub.Info()
+			if err != nil {
+				continue
+			}
+			untracked = append(untracked, untrackedFile{
+				name:    de.Name() + "/" + sub.Name(),
+				size:    info.Size(),
+				modTime: info.ModTime().UTC(),
+			})
+		}
 	}
 
 	if len(untracked) == 0 {
@@ -440,6 +474,122 @@ func runScan(store *TokenStore, args []string) error {
 		return fmt.Errorf("import: %w", err)
 	}
 	fmt.Printf("\nimported %d file(s) into token %s\n", len(entries), *tokenID)
+	return nil
+}
+
+// runMigrate moves existing flat files from UPLOAD_DIR into per-user subdirectories
+// (UPLOAD_DIR/<tokenID>/). All files in the flat directory are moved into the chosen
+// token's folder and imported into its upload history.
+func runMigrate(store *TokenStore, args []string) error {
+	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	tokenID := fs.String("token", "", "token ID to adopt all flat files into (required)")
+	dryRun := fs.Bool("dry-run", false, "list files that would be moved without touching anything")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *tokenID == "" {
+		return errors.New("usage: uploadserver migrate --token <id> [--dry-run]")
+	}
+
+	// Verify the token exists.
+	if _, ok := store.GetRecord(*tokenID); !ok {
+		return fmt.Errorf("token %q not found", *tokenID)
+	}
+
+	uploadDir := Env("UPLOAD_DIR", "./data")
+	userDir := filepath.Join(uploadDir, *tokenID)
+
+	dirEntries, err := os.ReadDir(uploadDir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", uploadDir, err)
+	}
+
+	type migFile struct {
+		name    string
+		size    int64
+		modTime time.Time
+	}
+	var toMove []migFile
+	for _, de := range dirEntries {
+		if de.IsDir() || strings.HasPrefix(de.Name(), ".") {
+			continue
+		}
+		info, err := de.Info()
+		if err != nil {
+			continue
+		}
+		toMove = append(toMove, migFile{
+			name:    de.Name(),
+			size:    info.Size(),
+			modTime: info.ModTime().UTC(),
+		})
+	}
+
+	if len(toMove) == 0 {
+		fmt.Println("no flat files found to migrate")
+		return nil
+	}
+
+	fmt.Printf("found %d file(s) in %s to migrate into %s/\n", len(toMove), uploadDir, *tokenID)
+
+	if *dryRun {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "FILE\tSIZE\tMODIFIED")
+		for _, f := range toMove {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", f.name, FormatSize(f.size), fmtTime(f.modTime))
+		}
+		_ = tw.Flush()
+		fmt.Printf("\n[dry-run] would move %d file(s) — re-run without --dry-run to execute\n", len(toMove))
+		return nil
+	}
+
+	// Create the user directory.
+	if err := os.MkdirAll(userDir, 0o750); err != nil {
+		return fmt.Errorf("create user dir: %w", err)
+	}
+
+	// Read existing tracked files to avoid double-importing.
+	allEntries, err := store.AllUploadEntries()
+	if err != nil {
+		return fmt.Errorf("read upload entries: %w", err)
+	}
+	tracked := make(map[string]bool)
+	for _, entries := range allEntries {
+		for _, e := range entries {
+			tracked[e.Name] = true
+		}
+	}
+
+	var moved int
+	var newEntries []UploadEntry
+	for _, f := range toMove {
+		src := filepath.Join(uploadDir, f.name)
+		dst := filepath.Join(userDir, f.name)
+		if err := os.Rename(src, dst); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to move %s: %v\n", f.name, err)
+			continue
+		}
+		moved++
+		if !tracked[f.name] {
+			newEntries = append(newEntries, UploadEntry{
+				Name:       f.name,
+				Size:       f.size,
+				UploadedAt: f.modTime,
+			})
+		}
+	}
+
+	// Import untracked files into the token's upload history.
+	if len(newEntries) > 0 {
+		if err := store.ImportUploadEntries(*tokenID, newEntries); err != nil {
+			return fmt.Errorf("import entries: %w", err)
+		}
+	}
+
+	fmt.Printf("\nmigrated %d file(s) into %s/%s\n", moved, uploadDir, *tokenID)
+	if len(newEntries) > 0 {
+		fmt.Printf("imported %d previously untracked file(s) into token %s\n", len(newEntries), *tokenID)
+	}
 	return nil
 }
 

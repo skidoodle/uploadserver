@@ -36,8 +36,13 @@ func newTestServer(t *testing.T) (*server, http.Handler, string) {
 		MaxBytes:     1 << 20,
 		StorePath:    filepath.Join(dir, "tokens.json"),
 		AdminEnabled: true,
+		ServeFiles:   true,
 	}
-	srv := &server{cfg: cfg, store: store}
+	fileIndex, err := internal.BuildFileIndex(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &server{cfg: cfg, store: store, fileIndex: fileIndex}
 	return srv, srv.routes(), secret
 }
 
@@ -84,7 +89,11 @@ func TestUploadReturnsCDNURL(t *testing.T) {
 		t.Fatalf("extension not preserved/lowercased: %q", url)
 	}
 	name := url[strings.LastIndexByte(url, '/')+1:]
-	if _, err := os.Stat(filepath.Join(srv.cfg.Dir, name)); err != nil {
+	ownerID := srv.fileIndex.Owner(name)
+	if ownerID == "" {
+		t.Fatalf("file %s not found in file index", name)
+	}
+	if _, err := os.Stat(filepath.Join(srv.cfg.Dir, ownerID, name)); err != nil {
 		t.Fatalf("stored file missing: %v", err)
 	}
 }
@@ -668,7 +677,7 @@ func TestUploadTokenLoginAndProfile(t *testing.T) {
 	_, h, admin := newTestServer(t)
 	id, secret := createUploadToken(t, h, admin, "userone")
 
-	// 1. Upload token should be able to authenticate and view its own dashboard (user profile)
+	// 1. Upload token should be able to authenticate and view its own landing page / with user profile card
 	req := httptest.NewRequest("GET", "/", nil)
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
 	rec := httptest.NewRecorder()
@@ -680,6 +689,9 @@ func TestUploadTokenLoginAndProfile(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "user profile") || !strings.Contains(body, "userone") {
 		t.Errorf("user dashboard should contain user profile and userone, got: %s", body)
+	}
+	if !strings.Contains(body, "Purge All Media") || !strings.Contains(body, "Delete Account") {
+		t.Errorf("user dashboard should contain self service purge and delete options")
 	}
 	if strings.Contains(body, "create token") || strings.Contains(body, "global quota") {
 		t.Errorf("upload token dashboard must not contain admin controls")
@@ -1101,5 +1113,240 @@ func TestAdminUserProfilePage(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "profuser") || !strings.Contains(body, "user profile") {
 		t.Errorf("expected user profile body to contain 'profuser' and 'user profile', got: %s", body)
+	}
+}
+
+func TestMediaManagement_ServeHeaderAndDeletion(t *testing.T) {
+	srv, h, adminSecret := newTestServer(t)
+	uploaderID, uploaderSecret := createUploadToken(t, h, adminSecret, "mediausr")
+
+	// 1. Upload a file as uploader
+	rec := upload(t, h, uploaderSecret, "file", "testimage.png", "image data")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload failed: status=%d", rec.Code)
+	}
+	fileURL := rec.Body.String()
+	filename := fileURL[strings.LastIndexByte(fileURL, '/')+1:]
+
+	// 2. GET request to serve handler verifies X-Upload-Owner header
+	reqServe := httptest.NewRequest("GET", "/"+filename, nil)
+	recServe := httptest.NewRecorder()
+	h.ServeHTTP(recServe, reqServe)
+	if recServe.Code != http.StatusOK {
+		t.Fatalf("GET /%s status = %d, want 200", filename, recServe.Code)
+	}
+	if owner := recServe.Header().Get("X-Owner"); owner != uploaderID {
+		t.Errorf("X-Owner header = %q, want %q", owner, uploaderID)
+	}
+
+	// 3. DELETE /{filename} unauthenticated -> 401
+	reqDelUnauth := httptest.NewRequest("DELETE", "/"+filename, nil)
+	recDelUnauth := httptest.NewRecorder()
+	h.ServeHTTP(recDelUnauth, reqDelUnauth)
+	if recDelUnauth.Code != http.StatusUnauthorized {
+		t.Errorf("unauth DELETE /%s status = %d, want 401", filename, recDelUnauth.Code)
+	}
+
+	// 4. DELETE /{filename} as another non-admin user -> 403
+	_, otherSecret := createUploadToken(t, h, adminSecret, "otherusr")
+	reqDelOther := httptest.NewRequest("DELETE", "/"+filename, nil)
+	reqDelOther.Header.Set("Authorization", "Bearer "+otherSecret)
+	recDelOther := httptest.NewRecorder()
+	h.ServeHTTP(recDelOther, reqDelOther)
+	if recDelOther.Code != http.StatusForbidden {
+		t.Errorf("other user DELETE /%s status = %d, want 403", filename, recDelOther.Code)
+	}
+
+	// 5. DELETE /{filename} as owner -> 204 No Content
+	reqDelOwner := httptest.NewRequest("DELETE", "/"+filename, nil)
+	reqDelOwner.Header.Set("Authorization", "Bearer "+uploaderSecret)
+	recDelOwner := httptest.NewRecorder()
+	h.ServeHTTP(recDelOwner, reqDelOwner)
+	if recDelOwner.Code != http.StatusNoContent {
+		t.Errorf("owner DELETE /%s status = %d, want 24", filename, recDelOwner.Code)
+	}
+
+	// Verify file is gone from fileIndex and disk
+	if srv.fileIndex.Owner(filename) != "" {
+		t.Errorf("filename %s still in fileIndex after deletion", filename)
+	}
+}
+
+func TestMediaManagement_PurgeAndAccountSelfDelete(t *testing.T) {
+	srv, h, adminSecret := newTestServer(t)
+
+	// 1. Test Self Purge Media (DELETE /_/api/purge)
+	_, user1Secret := createUploadToken(t, h, adminSecret, "purgeusr")
+	rec1 := upload(t, h, user1Secret, "file", "f1.txt", "content1")
+	rec2 := upload(t, h, user1Secret, "file", "f2.txt", "content2")
+	if rec1.Code != 200 || rec2.Code != 200 {
+		t.Fatalf("uploads failed: rec1=%d, rec2=%d", rec1.Code, rec2.Code)
+	}
+	f1Name := rec1.Body.String()[strings.LastIndexByte(rec1.Body.String(), '/')+1:]
+	f2Name := rec2.Body.String()[strings.LastIndexByte(rec2.Body.String(), '/')+1:]
+
+	reqPurge := httptest.NewRequest("DELETE", "/_/api/purge", nil)
+	reqPurge.Header.Set("Authorization", "Bearer "+user1Secret)
+	recPurge := httptest.NewRecorder()
+	h.ServeHTTP(recPurge, reqPurge)
+	if recPurge.Code != http.StatusOK {
+		t.Fatalf("DELETE /_/api/purge status = %d, want 200", recPurge.Code)
+	}
+
+	if srv.fileIndex.Owner(f1Name) != "" || srv.fileIndex.Owner(f2Name) != "" {
+		t.Errorf("files still indexed after self purge")
+	}
+
+	// 2. Test Account Self Delete (DELETE /_/api/account)
+	uploaderID2, user2Secret := createUploadToken(t, h, adminSecret, "delaccusr")
+	_ = upload(t, h, user2Secret, "file", "f3.txt", "content3")
+
+	// Without confirm -> 400
+	reqAccNoConf := httptest.NewRequest("DELETE", "/_/api/account", strings.NewReader(`{}`))
+	reqAccNoConf.Header.Set("Authorization", "Bearer "+user2Secret)
+	recAccNoConf := httptest.NewRecorder()
+	h.ServeHTTP(recAccNoConf, reqAccNoConf)
+	if recAccNoConf.Code != http.StatusBadRequest {
+		t.Errorf("account delete without confirm status = %d, want 400", recAccNoConf.Code)
+	}
+
+	// With confirm -> 200 OK
+	reqAccConf := httptest.NewRequest("DELETE", "/_/api/account", strings.NewReader(`{"confirm":true}`))
+	reqAccConf.Header.Set("Authorization", "Bearer "+user2Secret)
+	recAccConf := httptest.NewRecorder()
+	h.ServeHTTP(recAccConf, reqAccConf)
+	if recAccConf.Code != http.StatusOK {
+		t.Fatalf("account delete status = %d, want 200", recAccConf.Code)
+	}
+
+	// Verify token is deleted
+	if _, found := srv.store.GetRecord(uploaderID2); found {
+		t.Errorf("token %s still exists in store after self delete", uploaderID2)
+	}
+
+	// 3. Test Admin Purge User Media (DELETE /_/api/tokens/{id}/media)
+	targetID, targetSecret := createUploadToken(t, h, adminSecret, "admpurge")
+	rec3 := upload(t, h, targetSecret, "file", "f4.txt", "content4")
+	f4Name := rec3.Body.String()[strings.LastIndexByte(rec3.Body.String(), '/')+1:]
+
+	reqAdminPurge := httptest.NewRequest("DELETE", "/_/api/tokens/"+targetID+"/media", nil)
+	reqAdminPurge.Header.Set("Authorization", "Bearer "+adminSecret)
+	recAdminPurge := httptest.NewRecorder()
+	h.ServeHTTP(recAdminPurge, reqAdminPurge)
+	if recAdminPurge.Code != http.StatusOK {
+		t.Fatalf("admin purge status = %d, want 200", recAdminPurge.Code)
+	}
+	if srv.fileIndex.Owner(f4Name) != "" {
+		t.Errorf("file f4Name still in fileIndex after admin purge")
+	}
+	// Verify token still exists
+	if _, found := srv.store.GetRecord(targetID); !found {
+		t.Errorf("user token removed during admin media purge; expected token to remain")
+	}
+}
+
+func TestStripExtensionServing(t *testing.T) {
+	srv, h, secret := newTestServer(t)
+	srv.cfg.StripExtension = true
+
+	rec := upload(t, h, secret, "file", "testpic.PNG", "hello strip extension")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload failed: status=%d", rec.Code)
+	}
+	url := rec.Body.String()
+	nameWithExt := url[strings.LastIndexByte(url, '/')+1:]
+	nameStripped := strings.TrimSuffix(nameWithExt, ".png")
+
+	// Test GET with full filename -> 200
+	reqFull := httptest.NewRequest("GET", "/"+nameWithExt, nil)
+	recFull := httptest.NewRecorder()
+	h.ServeHTTP(recFull, reqFull)
+	if recFull.Code != http.StatusOK {
+		t.Fatalf("GET /%s status = %d, want 200", nameWithExt, recFull.Code)
+	}
+
+	// Test GET with stripped filename -> 200
+	reqStripped := httptest.NewRequest("GET", "/"+nameStripped, nil)
+	recStripped := httptest.NewRecorder()
+	h.ServeHTTP(recStripped, reqStripped)
+	if recStripped.Code != http.StatusOK {
+		t.Fatalf("GET /%s (stripped) status = %d, want 200", nameStripped, recStripped.Code)
+	}
+}
+
+func TestUploadUserSelfService(t *testing.T) {
+	srv, h, adminSecret := newTestServer(t)
+
+	// 1. Create an upload role token
+	uploaderID, uploaderSecret := createUploadToken(t, h, adminSecret, "selfusr")
+
+	// 2. Upload user can view their OWN profile page /_/user/{id}
+	reqProf := httptest.NewRequest("GET", "/_/user/"+uploaderID, nil)
+	reqProf.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
+	recProf := httptest.NewRecorder()
+	h.ServeHTTP(recProf, reqProf)
+	if recProf.Code != http.StatusOK {
+		t.Fatalf("upload user GET /_/user/%s status = %d, want 200", uploaderID, recProf.Code)
+	}
+
+	// 3. Upload user can rename their OWN label
+	reqRename := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/label", strings.NewReader("label=newname&_csrf=dummy"))
+	reqRename.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqRename.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
+	reqRename.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	recRename := httptest.NewRecorder()
+	h.ServeHTTP(recRename, reqRename)
+	if recRename.Code != http.StatusSeeOther {
+		t.Fatalf("upload user rename label status = %d, want 303", recRename.Code)
+	}
+	recCheck, _ := srv.store.GetRecord(uploaderID)
+	if recCheck.Label != "newname" {
+		t.Errorf("label after self rename = %q, want %q", recCheck.Label, "newname")
+	}
+
+	// 4. Upload user can delete a single file via SSR form
+	upRec := upload(t, h, uploaderSecret, "file", "singledel.txt", "content")
+	fileURL := upRec.Body.String()
+	filename := fileURL[strings.LastIndexByte(fileURL, '/')+1:]
+
+	reqDelFile := httptest.NewRequest("POST", "/_/files/delete", strings.NewReader("filename="+filename+"&_csrf=dummy"))
+	reqDelFile.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqDelFile.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
+	reqDelFile.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	recDelFile := httptest.NewRecorder()
+	h.ServeHTTP(recDelFile, reqDelFile)
+	if recDelFile.Code != http.StatusSeeOther {
+		t.Fatalf("delete file SSR status = %d, want 303", recDelFile.Code)
+	}
+	if srv.fileIndex.Owner(filename) != "" {
+		t.Errorf("filename %s still in index after SSR delete", filename)
+	}
+
+	// 5. Upload user can purge all media via SSR form
+	_ = upload(t, h, uploaderSecret, "file", "purge1.txt", "data1")
+	_ = upload(t, h, uploaderSecret, "file", "purge2.txt", "data2")
+
+	reqPurge := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/purge-media", strings.NewReader("_csrf=dummy"))
+	reqPurge.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqPurge.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
+	reqPurge.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	recPurge := httptest.NewRecorder()
+	h.ServeHTTP(recPurge, reqPurge)
+	if recPurge.Code != http.StatusSeeOther {
+		t.Fatalf("purge media SSR status = %d, want 303", recPurge.Code)
+	}
+
+	// 6. Upload user can delete their OWN account via SSR form
+	reqDelAcc := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/delete", strings.NewReader("_csrf=dummy"))
+	reqDelAcc.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	reqDelAcc.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
+	reqDelAcc.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	recDelAcc := httptest.NewRecorder()
+	h.ServeHTTP(recDelAcc, reqDelAcc)
+	if recDelAcc.Code != http.StatusSeeOther {
+		t.Fatalf("delete account SSR status = %d, want 303", recDelAcc.Code)
+	}
+	if _, found := srv.store.GetRecord(uploaderID); found {
+		t.Errorf("user token %s still exists after account self deletion", uploaderID)
 	}
 }

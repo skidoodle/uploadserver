@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
+	"sync"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -866,4 +868,151 @@ func (s *TokenStore) UploadsFor(tokenID string) ([]UploadEntry, error) {
 		entries[i], entries[j] = entries[j], entries[i]
 	}
 	return entries, nil
+}
+
+// FileIndex is a concurrency-safe in-memory reverse index mapping upload
+// filenames to the token ID that owns them. It is built once at startup from
+// the uploads bucket and kept in sync by Add/Remove calls on every upload
+// and delete.
+type FileIndex struct {
+	mu        sync.RWMutex
+	files     map[string]string // filename → token ID
+	fullNames map[string]string // baseName → full filename
+}
+
+// BuildFileIndex constructs a FileIndex from every upload entry in the store.
+// Call once at server startup; the returned index is then passed to handlers.
+func BuildFileIndex(s *TokenStore) (*FileIndex, error) {
+	idx := &FileIndex{
+		files:     make(map[string]string),
+		fullNames: make(map[string]string),
+	}
+	all, err := s.AllUploadEntries()
+	if err != nil {
+		return nil, err
+	}
+	for tokenID, entries := range all {
+		for _, e := range entries {
+			idx.files[e.Name] = tokenID
+			if ext := filepath.Ext(e.Name); ext != "" {
+				base := strings.TrimSuffix(e.Name, ext)
+				idx.fullNames[base] = e.Name
+			}
+		}
+	}
+	return idx, nil
+}
+
+// Lookup returns the token ID and full stored filename for a given name or base name.
+func (idx *FileIndex) Lookup(name string) (ownerID, fullName string) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	if id, ok := idx.files[name]; ok {
+		return id, name
+	}
+	if full, ok := idx.fullNames[name]; ok {
+		return idx.files[full], full
+	}
+	if ext := filepath.Ext(name); ext != "" {
+		base := strings.TrimSuffix(name, ext)
+		if full, ok := idx.fullNames[base]; ok {
+			return idx.files[full], full
+		}
+	}
+	return "", ""
+}
+
+// Owner returns the token ID that owns the given filename or base name, or an empty string if not found.
+func (idx *FileIndex) Owner(filename string) string {
+	ownerID, _ := idx.Lookup(filename)
+	return ownerID
+}
+
+// Add associates a filename with a token ID in the index.
+func (idx *FileIndex) Add(filename, tokenID string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	idx.files[filename] = tokenID
+	if ext := filepath.Ext(filename); ext != "" {
+		base := strings.TrimSuffix(filename, ext)
+		idx.fullNames[base] = filename
+	}
+}
+
+// Remove deletes a filename from the index.
+func (idx *FileIndex) Remove(filename string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	delete(idx.files, filename)
+	if ext := filepath.Ext(filename); ext != "" {
+		base := strings.TrimSuffix(filename, ext)
+		delete(idx.fullNames, base)
+	} else {
+		delete(idx.fullNames, filename)
+	}
+}
+
+// RemoveAll deletes all filenames associated with a token ID from the index,
+// returning the list of filenames removed.
+func (idx *FileIndex) RemoveAll(tokenID string) []string {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	var removed []string
+	for name, id := range idx.files {
+		if id == tokenID {
+			removed = append(removed, name)
+			delete(idx.files, name)
+			if ext := filepath.Ext(name); ext != "" {
+				base := strings.TrimSuffix(name, ext)
+				delete(idx.fullNames, base)
+			}
+		}
+	}
+	return removed
+}
+
+// Count returns the total number of indexed files.
+func (idx *FileIndex) Count() int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return len(idx.files)
+}
+
+// RemoveUploadEntry removes a specific upload entry from the uploads bucket.
+func (s *TokenStore) RemoveUploadEntry(tokenID, filename string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(uploadBucket)
+		v := b.Get([]byte(tokenID))
+		if v == nil {
+			return nil
+		}
+		var entries []UploadEntry
+		if err := json.Unmarshal(v, &entries); err != nil {
+			return err
+		}
+		var updated []UploadEntry
+		for _, e := range entries {
+			if e.Name != filename {
+				updated = append(updated, e)
+			}
+		}
+		if len(updated) == len(entries) {
+			return nil // File not found
+		}
+		if len(updated) == 0 {
+			return b.Delete([]byte(tokenID))
+		}
+		data, err := json.Marshal(updated)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(tokenID), data)
+	})
+}
+
+// RemoveAllUploadEntries deletes the entire upload entry list for a token.
+func (s *TokenStore) RemoveAllUploadEntries(tokenID string) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(uploadBucket).Delete([]byte(tokenID))
+	})
 }

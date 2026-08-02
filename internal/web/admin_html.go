@@ -43,6 +43,7 @@ type uploadsPageData struct {
 	Token           internal.TokenRecord
 	Uploads         []internal.UploadEntry // current page slice
 	BaseURL         string
+	StripExtension  bool
 	CSRF            string
 	Page            int // 1-indexed current page
 	TotalPages      int
@@ -52,6 +53,9 @@ type uploadsPageData struct {
 	PageStart       int // 1-indexed first file on this page
 	PageEnd         int // 1-indexed last file on this page
 	Query           string
+	IsAdmin         bool
+	IsSelf          bool
+	Error           string
 }
 
 // adminPageData is the template data for the admin page.
@@ -95,6 +99,7 @@ type userProfilePageData struct {
 	LoggedIn     bool
 	IsAdmin      bool
 	IsRoot       bool
+	IsSelf       bool
 	CurrentToken *internal.TokenRecord
 	TargetToken  internal.TokenRecord
 	Global       internal.Limits
@@ -150,7 +155,12 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 			return "\U0001F4CE" // paperclip
 		}
 	},
-	"fileURL": func(baseURL, name string) string {
+	"fileURL": func(baseURL, name string, stripExt bool) string {
+		if stripExt {
+			if ext := filepath.Ext(name); ext != "" {
+				name = strings.TrimSuffix(name, ext)
+			}
+		}
 		if baseURL != "" {
 			return baseURL + "/" + name
 		}

@@ -9,8 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"uploadserver/internal"
@@ -278,10 +281,18 @@ func (s *server) handleAdminSetRoleSSR(w http.ResponseWriter, r *http.Request) {
 	redirect(w, r)
 }
 
-// handleAdminDeleteTokenSSR deletes a token.
-// It requires the admin cookie and a valid CSRF token.
+// handleAdminDeleteTokenSSR deletes a token and purges its uploaded media.
+// It accepts requests from an admin or the token owner (account self-deletion).
 func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminCookie(w, r) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
 		return
 	}
 	if !validateCSRF(r) {
@@ -290,16 +301,124 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 	}
 
 	id := r.PathValue("id")
+	if !internal.IsAdmin(userRec.Role) && userRec.ID != id {
+		redirectWithError(w, r, "forbidden: admin token or self required")
+		return
+	}
+
+	s.purgeUserMedia(id)
 	if err := s.store.Remove(id); err != nil {
 		redirectWithError(w, r, err.Error())
 		return
 	}
+
+	if userRec.ID == id {
+		clearCookie(w, r, adminCookieName)
+		setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte("account deleted")), 0)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
 	ref := r.Header.Get("Referer")
 	if isSafeRedirectTarget(ref, r.Host) && !strings.HasSuffix(ref, "/"+id) {
 		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
 		return
 	}
 	http.Redirect(w, r, "/_/users", http.StatusSeeOther)
+}
+
+// handlePurgeUserMediaSSR purges all media for a token via form submit.
+func (s *server) handlePurgeUserMediaSSR(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return
+	}
+	if !validateCSRF(r) {
+		redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	id := r.PathValue("id")
+	if !internal.IsAdmin(userRec.Role) && userRec.ID != id {
+		redirectWithError(w, r, "forbidden")
+		return
+	}
+
+	s.purgeUserMedia(id)
+	redirect(w, r)
+}
+
+// handleDeleteFileSSR removes a single uploaded file via form submit.
+func (s *server) handleDeleteFileSSR(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return
+	}
+	if !validateCSRF(r) {
+		redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	filename := r.FormValue("filename")
+	if filename == "" {
+		redirectWithError(w, r, "missing filename")
+		return
+	}
+
+	var ownerID, fullName string
+	if s.fileIndex != nil {
+		ownerID, fullName = s.fileIndex.Lookup(filename)
+	}
+	if ownerID == "" {
+		redirectWithError(w, r, "file not found")
+		return
+	}
+	if fullName == "" {
+		fullName = filename
+	}
+
+	if !internal.IsAdmin(userRec.Role) && userRec.ID != ownerID {
+		redirectWithError(w, r, "forbidden")
+		return
+	}
+
+	disk := filepath.Join(s.cfg.Dir, ownerID, fullName)
+	// #nosec G703,G706 -- disk is constructed from validated ownerID and filename from index, log input sanitized
+	if err := os.Remove(disk); err != nil && !os.IsNotExist(err) {
+		log.Printf("delete file %s: %v", internal.SanitizeLog(fullName), err)
+		redirectWithError(w, r, "could not delete file")
+		return
+	}
+
+	_ = s.store.RemoveUploadEntry(ownerID, fullName)
+	if s.fileIndex != nil {
+		s.fileIndex.Remove(fullName)
+	}
+
+	log.Printf("deleted %s (owner %s) by token %s (%s)", // #nosec G706 -- Inputs are sanitized
+		internal.SanitizeLog(fullName), internal.SanitizeLog(ownerID),
+		internal.SanitizeLog(userRec.ID), internal.SanitizeLog(userRec.Label))
+
+	ref := r.Header.Get("Referer")
+	if isSafeRedirectTarget(ref, r.Host) {
+		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
+		return
+	}
+	http.Redirect(w, r, "/_/uploads/"+ownerID, http.StatusSeeOther) // #nosec G710 -- Safe internal uploads URL
 }
 
 // handleAdminSetLimitsSSR updates a token's quotas from the dashboard's limits
@@ -428,17 +547,91 @@ func (s *server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleDeleteToken deletes a token by its ID
+// handleDeleteToken deletes a token by its ID and purges its uploaded media.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
 	}
-	if err := s.store.Remove(r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	s.purgeUserMedia(id)
+	if err := s.store.Remove(id); err != nil {
 		writeStoreErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// purgeUserMedia removes all uploaded files for a token from disk, the upload
+// entries from the store, and the reverse index. It is the shared core behind
+// token deletion, self-serve purge, and admin-initiated purge.
+func (s *server) purgeUserMedia(tokenID string) {
+	// Remove the per-user directory from disk.
+	userDir := filepath.Join(s.cfg.Dir, tokenID)
+	// #nosec G703,G706 -- tokenID is validated 8-char hex token ID, log input sanitized
+	if err := os.RemoveAll(userDir); err != nil {
+		log.Printf("purge media dir %s: %v", internal.SanitizeLog(userDir), err)
+	}
+	// Clear from the in-memory index.
+	if s.fileIndex != nil {
+		s.fileIndex.RemoveAll(tokenID)
+	}
+	// Clear the upload entries from the store.
+	_ = s.store.RemoveAllUploadEntries(tokenID)
+	log.Printf("purged all media for token %s", internal.SanitizeLog(tokenID)) // #nosec G706 -- Input is sanitized
+}
+
+// handlePurgeMedia lets an authenticated user delete all their own uploads.
+func (s *server) handlePurgeMedia(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.authenticate(r)
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="upload"`)
+		httpError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	s.purgeUserMedia(rec.ID)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "purged": rec.ID})
+}
+
+// handleDeleteAccount lets an authenticated user delete all their uploads and
+// remove their own token. Requires {"confirm":true} in the request body.
+func (s *server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.authenticate(r)
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="upload"`)
+		httpError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	var req struct {
+		Confirm bool `json:"confirm"`
+	}
+	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req)
+	if !req.Confirm {
+		httpError(w, http.StatusBadRequest, `send {"confirm":true} to delete your account`)
+		return
+	}
+	s.purgeUserMedia(rec.ID)
+	if err := s.store.Remove(rec.ID); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	log.Printf("account self-deleted: %s (%s)", internal.SanitizeLog(rec.ID), internal.SanitizeLog(rec.Label))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": rec.ID})
+}
+
+// handleAdminPurgeUserMedia lets an admin purge all media for a specific user
+// without deleting the user's token.
+func (s *server) handleAdminPurgeUserMedia(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	id := r.PathValue("id")
+	if _, found := s.store.GetRecord(id); !found {
+		httpError(w, http.StatusNotFound, "token not found")
+		return
+	}
+	s.purgeUserMedia(id)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "purged": id})
 }
 
 // handleSetLabelSSR handles renaming a token via form submit.
@@ -667,25 +860,14 @@ func redirect(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
 		return
 	}
-	if id := r.PathValue("id"); id != "" {
-		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther) // #nosec G710 -- Safe internal user profile URL
-		return
-	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-// redirectWithError stashes a message in a flash cookie and bounces back to the
-// Referer or fallback.
-// It returns the redirect status code.
 func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
 	setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
 	ref := r.Header.Get("Referer")
 	if isSafeRedirectTarget(ref, r.Host) {
 		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
-		return
-	}
-	if id := r.PathValue("id"); id != "" {
-		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther) // #nosec G710 -- Safe internal user profile URL
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -768,6 +950,7 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 		Token:           *rec,
 		Uploads:         pageEntries,
 		BaseURL:         s.cfg.BaseURL,
+		StripExtension:  s.cfg.StripExtension,
 		CSRF:            csrf,
 		Page:            page,
 		TotalPages:      totalPages,
@@ -777,6 +960,15 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 		PageStart:       start + 1,
 		PageEnd:         end,
 		Query:           query,
+		IsAdmin:         internal.IsAdmin(userRec.Role),
+		IsSelf:          userRec.ID == tokenID,
+	}
+
+	if c, err := r.Cookie(flashErrorName); err == nil {
+		clearCookie(w, r, flashErrorName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			data.Error = string(decoded)
+		}
 	}
 
 	renderTemplate(w, uploadsTmpl, data)
@@ -893,12 +1085,12 @@ func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Reque
 		redirectWithError(w, r, "session expired")
 		return
 	}
-	if !internal.IsAdmin(userRec.Role) {
-		httpError(w, http.StatusForbidden, "admin token required")
+	targetID := r.PathValue("id")
+	if !internal.IsAdmin(userRec.Role) && userRec.ID != targetID {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
-	targetID := r.PathValue("id")
 	targetRec, found := s.store.GetRecord(targetID)
 	if !found {
 		redirectWithError(w, r, "user not found")
@@ -910,8 +1102,9 @@ func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Reque
 
 	data := userProfilePageData{
 		LoggedIn:     true,
-		IsAdmin:      true,
+		IsAdmin:      internal.IsAdmin(userRec.Role),
 		IsRoot:       userRec.Role == internal.RoleRoot,
+		IsSelf:       userRec.ID == targetID,
 		CurrentToken: &userRec,
 		TargetToken:  targetRec,
 		Global:       s.store.GlobalLimits(),

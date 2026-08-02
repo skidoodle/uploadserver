@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"mime/multipart"
@@ -60,7 +61,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name, n, err := savePart(cfg, mr)
+	name, n, err := savePart(cfg, mr, rec.ID)
 	switch {
 	case errors.Is(err, errNoFile):
 		httpError(w, http.StatusBadRequest, "no "+cfg.Field+" field in upload")
@@ -88,6 +89,10 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		UploadedAt: time.Now().UTC(),
 	})
 
+	if s.fileIndex != nil {
+		s.fileIndex.Add(name, rec.ID)
+	}
+
 	url := publicURL(cfg, r, name)
 	log.Printf("stored %s (%d bytes) by token %s (%s) from %s", // #nosec G706 -- Inputs sanitized via internal.SanitizeLog
 		internal.SanitizeLog(name), n, internal.SanitizeLog(rec.ID), internal.SanitizeLog(rec.Label), internal.SanitizeLog(clientIP(r)))
@@ -103,7 +108,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 // savePart finds the configured file field, writes it atomically to disk, and
 // returns the generated object name and the number of bytes written. The data
 // is streamed straight to a temp file (constant memory) then renamed into place.
-func savePart(cfg internal.Config, mr *multipart.Reader) (name string, n int64, err error) {
+func savePart(cfg internal.Config, mr *multipart.Reader, tokenID string) (name string, n int64, err error) {
 	for {
 		part, perr := mr.NextPart()
 		if errors.Is(perr, io.EOF) {
@@ -119,7 +124,12 @@ func savePart(cfg internal.Config, mr *multipart.Reader) (name string, n int64, 
 		}
 
 		name = randomName(cfg, extOf(part.FileName()))
-		tmp, terr := os.CreateTemp(cfg.Dir, ".upload-*")
+		userDir := filepath.Join(cfg.Dir, tokenID)
+		if err := os.MkdirAll(userDir, 0o750); err != nil {
+			_ = part.Close()
+			return "", 0, fmt.Errorf("create user dir: %w", err)
+		}
+		tmp, terr := os.CreateTemp(userDir, ".upload-*")
 		if terr != nil {
 			_ = part.Close()
 			return "", 0, terr
@@ -146,7 +156,7 @@ func savePart(cfg internal.Config, mr *multipart.Reader) (name string, n int64, 
 			_ = os.Remove(tmpName)
 			return "", 0, err
 		}
-		if err = os.Rename(tmpName, filepath.Join(cfg.Dir, name)); err != nil { // #nosec G703 -- name is a generated hex string with validated extension
+		if err = os.Rename(tmpName, filepath.Join(userDir, name)); err != nil { // #nosec G703 -- name is a generated hex string with validated extension
 			_ = os.Remove(tmpName)
 			_ = os.Remove(tmpName)
 			return "", 0, err

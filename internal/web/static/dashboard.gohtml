@@ -249,17 +249,6 @@
 		</tbody>
 	</table>
 
-	<dialog id="dlg">
-		<form method="POST" id="dlgForm" action="">
-			<input type="hidden" name="_csrf" value="{{ .CSRF }}">
-			<p id="dlgmsg"></p>
-			<div class="bar bar-end">
-				<button type="button" data-cancel>Cancel</button>
-				<button type="submit" class="danger">Delete</button>
-			</div>
-		</form>
-	</dialog>
-
 	<dialog id="roledlg">
 		<form method="POST" id="roleForm" action="">
 			<input type="hidden" name="_csrf" value="{{ .CSRF }}">
@@ -381,16 +370,38 @@
 				</tbody>
 			</table>
 			<div class="profile-actions">
+				<a href="/_/uploads/{{ .CurrentToken.ID }}" class="act-btn">View My Files</a>
 				<button type="button" class="act" data-rename-id="{{ .CurrentToken.ID }}"
 					data-label="{{ .CurrentToken.Label }}">Rename Label</button>
-				<form method="GET" action="/_/uploads/{{ .CurrentToken.ID }}" class="form-inline">
-					<button type="submit">View My Files</button>
-				</form>
+				<button type="button" class="act danger" data-purge-id="{{ .CurrentToken.ID }}">Purge All Media</button>
+				<button type="button" class="act danger" data-delete-id="{{ .CurrentToken.ID }}" data-is-self="true">Delete Account</button>
 			</div>
 		</fieldset>
 
 	{{ end }}
 {{ end }}
+
+<dialog id="dlg">
+	<form method="POST" id="dlgForm" action="">
+		<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+		<p id="dlgmsg"></p>
+		<div class="bar bar-end">
+			<button type="button" data-cancel>Cancel</button>
+			<button type="submit" class="danger">Delete</button>
+		</div>
+	</form>
+</dialog>
+
+<dialog id="purgedlg">
+	<form method="POST" id="purgeForm" action="">
+		<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+		<p id="purgedlgmsg"></p>
+		<div class="bar bar-end">
+			<button type="button" data-cancel>Cancel</button>
+			<button type="submit" class="danger">Purge Media</button>
+		</div>
+	</form>
+</dialog>
 
 <dialog id="renamedlg">
 	<form method="POST" id="renameForm" action="">

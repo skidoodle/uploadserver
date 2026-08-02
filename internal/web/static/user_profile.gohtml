@@ -67,15 +67,19 @@
 			</table>
 			<div class="profile-actions">
 				<a href="/_/uploads/{{ .TargetToken.ID }}" class="act-btn">View Files</a>
-				<button type="button" class="act" data-rename-id="{{ .TargetToken.ID }}" data-label="{{ .TargetToken.Label }}">Rename Label</button>
-				<button type="button" class="act" data-limit-id="{{ .TargetToken.ID }}"
-					data-max-bytes="{{ with .TargetToken.Limits.MaxBytes }}{{ humanBytes . }}{{ end }}"
-					data-max-uploads="{{ with .TargetToken.Limits.MaxUploads }}{{ . }}{{ end }}"
-					data-monthly-bytes="{{ with .TargetToken.Limits.MonthlyBytes }}{{ humanBytes . }}{{ end }}"
-					data-monthly-uploads="{{ with .TargetToken.Limits.MonthlyUploads }}{{ . }}{{ end }}"
-					data-invites="{{ with .TargetToken.Invites }}{{ . }}{{ end }}"
-					data-bypass="{{ if .TargetToken.Bypass }}1{{ end }}">Limits & Invites</button>
-				{{ if ne .TargetToken.Role "root" }}
+				{{ if or $.IsAdmin $.IsSelf }}
+					<button type="button" class="act" data-rename-id="{{ .TargetToken.ID }}" data-label="{{ .TargetToken.Label }}">Rename Label</button>
+				{{ end }}
+				{{ if $.IsAdmin }}
+					<button type="button" class="act" data-limit-id="{{ .TargetToken.ID }}"
+						data-max-bytes="{{ with .TargetToken.Limits.MaxBytes }}{{ humanBytes . }}{{ end }}"
+						data-max-uploads="{{ with .TargetToken.Limits.MaxUploads }}{{ . }}{{ end }}"
+						data-monthly-bytes="{{ with .TargetToken.Limits.MonthlyBytes }}{{ humanBytes . }}{{ end }}"
+						data-monthly-uploads="{{ with .TargetToken.Limits.MonthlyUploads }}{{ . }}{{ end }}"
+						data-invites="{{ with .TargetToken.Invites }}{{ . }}{{ end }}"
+						data-bypass="{{ if .TargetToken.Bypass }}1{{ end }}">Limits & Invites</button>
+				{{ end }}
+				{{ if and $.IsAdmin (ne .TargetToken.Role "root") }}
 					<form method="POST" action="/_/tokens/{{ .TargetToken.ID }}/toggle" class="form-inline">
 						<input type="hidden" name="_csrf" value="{{ $.CSRF }}">
 						<input type="hidden" name="disable" value="{{ if .TargetToken.Disabled }}false{{ else }}true{{ end }}">
@@ -88,7 +92,12 @@
 							<button type="button" class="act" data-role-id="{{ .TargetToken.ID }}" data-role-target="admin" data-role-label="Promote to Admin">Promote to Admin</button>
 						{{ end }}
 					{{ end }}
-					<button type="button" class="act danger" data-delete-id="{{ .TargetToken.ID }}">Delete Token</button>
+				{{ end }}
+				{{ if or $.IsAdmin $.IsSelf }}
+					<button type="button" class="act danger" data-purge-id="{{ .TargetToken.ID }}">Purge All Media</button>
+				{{ end }}
+				{{ if and (or $.IsAdmin $.IsSelf) (ne .TargetToken.Role "root") }}
+					<button type="button" class="act danger" data-delete-id="{{ .TargetToken.ID }}" data-is-self="{{ if $.IsSelf }}true{{ else }}false{{ end }}">{{ if $.IsSelf }}Delete Account{{ else }}Delete Token{{ end }}</button>
 				{{ end }}
 			</div>
 		</fieldset>
@@ -100,6 +109,17 @@
 				<div class="bar bar-end">
 					<button type="button" data-cancel>Cancel</button>
 					<button type="submit" class="danger">Delete</button>
+				</div>
+			</form>
+		</dialog>
+
+		<dialog id="purgedlg">
+			<form method="POST" id="purgeForm" action="">
+				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+				<p id="purgedlgmsg"></p>
+				<div class="bar bar-end">
+					<button type="button" data-cancel>Cancel</button>
+					<button type="submit" class="danger">Purge Media</button>
 				</div>
 			</form>
 		</dialog>

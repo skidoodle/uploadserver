@@ -42,7 +42,13 @@ func Run() (err error) {
 		return fmt.Errorf("bootstrap token: %w", err)
 	}
 
-	srv := &server{cfg: cfg, store: store}
+	fileIndex, err := internal.BuildFileIndex(store)
+	if err != nil {
+		return fmt.Errorf("build file index: %w", err)
+	}
+	log.Printf("indexed %d file(s) across all tokens", fileIndex.Count())
+
+	srv := &server{cfg: cfg, store: store, fileIndex: fileIndex}
 	srv.announce(secret, created)
 
 	httpSrv := &http.Server{

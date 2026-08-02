@@ -3,11 +3,14 @@ package web
 import (
 	"compress/gzip"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"uploadserver/internal"
 )
 
 // fileRule pairs a Cache-Control value with an optional Content-Disposition
@@ -77,7 +80,19 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	disk, ext, ok := s.resolveUpload(name)
+	var ownerID string
+	var disk, ext string
+	var ok bool
+	if s.fileIndex != nil {
+		ownerID = s.fileIndex.Owner(name)
+	}
+	if ownerID != "" {
+		disk, ext, ok = s.resolveUploadInDir(filepath.Join(s.cfg.Dir, ownerID), name)
+	}
+	if !ok {
+		// Fallback: try flat directory for backward compatibility / migration.
+		disk, ext, ok = s.resolveUploadInDir(s.cfg.Dir, name)
+	}
 	if !ok {
 		fileNotFound(w, r)
 		return
@@ -90,6 +105,10 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
+
+	if ownerID != "" {
+		w.Header().Set("X-Owner", ownerID)
 	}
 
 	f, err := os.Open(disk) // #nosec G304 -- disk is validated for absolute directory containment by resolveUpload
@@ -129,8 +148,8 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 // STRIP_EXTENSION is active and no exact match exists, it globs for
 // name.* — safe because upload names are random hex, so at most one file
 // matches any given base name.
-func (s *server) resolveUpload(name string) (disk, ext string, ok bool) {
-	absDir, err := filepath.Abs(s.cfg.Dir)
+func (s *server) resolveUploadInDir(dir, name string) (disk, ext string, ok bool) {
+	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return "", "", false
 	}
@@ -189,4 +208,60 @@ func fileNotFound(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusNotFound)
 	_, _ = io.WriteString(w, "404 not found\n")
+}
+
+// handleDeleteFile removes a single uploaded file. The caller must own the file
+// or hold an admin/root role.
+func (s *server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.authenticate(r)
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="upload"`)
+		httpError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
+	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	if name == "" {
+		httpError(w, http.StatusBadRequest, "missing filename")
+		return
+	}
+
+	// Determine the owner and full filename of the file.
+	var ownerID, fullName string
+	if s.fileIndex != nil {
+		ownerID, fullName = s.fileIndex.Lookup(name)
+	}
+	if ownerID == "" {
+		httpError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	if fullName == "" {
+		fullName = name
+	}
+
+	// Only the owner or an admin may delete.
+	if rec.ID != ownerID && !internal.IsAdmin(rec.Role) {
+		httpError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
+	// Remove from disk.
+	disk := filepath.Join(s.cfg.Dir, ownerID, fullName)
+	// #nosec G703,G706 -- disk path is constructed from ownerID and validated fullName, log input sanitized
+	if err := os.Remove(disk); err != nil && !os.IsNotExist(err) {
+		log.Printf("delete file %s: %v", internal.SanitizeLog(fullName), err)
+		httpError(w, http.StatusInternalServerError, "could not delete file")
+		return
+	}
+
+	// Remove from store and index.
+	_ = s.store.RemoveUploadEntry(ownerID, fullName)
+	if s.fileIndex != nil {
+		s.fileIndex.Remove(fullName)
+	}
+
+	log.Printf("deleted %s (owner %s) by token %s (%s)", // #nosec G706 -- Inputs are sanitized
+		internal.SanitizeLog(name), internal.SanitizeLog(ownerID),
+		internal.SanitizeLog(rec.ID), internal.SanitizeLog(rec.Label))
+	w.WriteHeader(http.StatusNoContent)
 }
