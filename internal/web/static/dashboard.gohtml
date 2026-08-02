@@ -2,7 +2,7 @@
     <legend>session</legend>
     <div class="bar">
         <input type="password" value="secured" disabled size="44">
-        <form method="POST" action="/logout" class="form-inline">
+        <form method="POST" action="/_/logout" class="form-inline">
             <input type="hidden" name="_csrf" value="{{.CSRF}}">
             <button type="submit">Log out</button>
         </form>
@@ -31,7 +31,7 @@
 {{if .IsAdmin}}
 <fieldset>
     <legend>create token</legend>
-    <form method="POST" action="/tokens/create" class="bar">
+    <form method="POST" action="/_/tokens/create" class="bar">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <input name="label" placeholder="label (e.g. laptop)" required
             pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
@@ -54,7 +54,7 @@
         <span>global quota</span>
         <span class="q-sum">{{with summary .Global}}{{.}}{{else}}none &#8212; uploads unlimited by default{{end}}</span>
     </summary>
-    <form method="POST" action="/global/limits" id="globalForm">
+    <form method="POST" action="/_/global/limits" id="globalForm">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <div class="lim-grid">
             <label>Total size
@@ -86,7 +86,7 @@
         <span>invite policy</span>
         <span class="q-sum">{{if .InvPolicy.SchedEnabled}}scheduled: {{.InvPolicy.SchedCount}} every {{.InvPolicy.SchedInterval}}s ({{if eq .InvPolicy.SchedMode "random"}}random pool {{.InvPolicy.SchedPool}}{{else}}all{{end}}){{else}}scheduled: off{{end}} &#8212; {{if .InvPolicy.NewUserEnabled}}new user: +{{.InvPolicy.NewUserCount}} after {{.InvPolicy.NewUserDelay}}s{{else}}new user: off{{end}}</span>
     </summary>
-    <form method="POST" action="/invite-policy" id="invitePolicyForm">
+    <form method="POST" action="/_/invite-policy" id="invitePolicyForm">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <p class="policy-heading">Scheduled Auto-Giveaway</p>
         <div class="lim-grid policy-grid">
@@ -174,7 +174,7 @@
                         data-monthly-uploads="{{with .Limits.MonthlyUploads}}{{.}}{{end}}"
                         data-invites="{{with .Invites}}{{.}}{{end}}"
                         data-bypass="{{if .Bypass}}1{{end}}">Limits & Invites</button>
-                    <form method="POST" action="/tokens/{{.ID}}/toggle" class="ctx-form">
+                    <form method="POST" action="/_/tokens/{{.ID}}/toggle" class="ctx-form">
                         <input type="hidden" name="_csrf" value="{{$.CSRF}}">
                         <input type="hidden" name="disable" value="{{if .Disabled}}false{{else}}true{{end}}">
                         <button class="ctx-item" type="submit">{{if .Disabled}}Enable{{else}}Disable{{end}}</button>
@@ -251,7 +251,7 @@
 
 <fieldset>
     <legend>create token</legend>
-    <form method="POST" action="/tokens/invite" id="inviteForm" class="bar">
+    <form method="POST" action="/_/tokens/invite" id="inviteForm" class="bar">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <input name="label" id="inviteInput" placeholder="token label (e.g. alex)" required
             pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
@@ -334,7 +334,7 @@
 </dialog>
 
 <dialog id="giveawaydlg">
-    <form method="POST" action="/tokens/giveaway">
+    <form method="POST" action="/_/tokens/giveaway">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <p class="dlg-title">Giveaway Invites</p>
         <p class="dlg-desc">Grant additional invite credits to users with the <code>upload</code> role.</p>

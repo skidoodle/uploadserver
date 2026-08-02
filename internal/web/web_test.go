@@ -148,7 +148,7 @@ func TestAdminCreateTokenThenUpload(t *testing.T) {
 	_, h, admin := newTestServer(t)
 
 	// Create an upload-only token via the admin API.
-	rec := adminReq(t, h, "POST", "/api/tokens", admin, `{"label":"laptop","role":"upload"}`)
+	rec := adminReq(t, h, "POST", "/_/api/tokens", admin, `{"label":"laptop","role":"upload"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create status = %d, body=%q", rec.Code, rec.Body.String())
 	}
@@ -168,12 +168,12 @@ func TestAdminCreateTokenThenUpload(t *testing.T) {
 	}
 
 	// But it cannot reach the admin API.
-	if denied := adminReq(t, h, "GET", "/api/tokens", created.Secret, ""); denied.Code != http.StatusUnauthorized {
+	if denied := adminReq(t, h, "GET", "/_/api/tokens", created.Secret, ""); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("upload token reached admin API: status %d", denied.Code)
 	}
 
 	// Revoke it; uploads must then fail.
-	if del := adminReq(t, h, "DELETE", "/api/tokens/"+created.ID, admin, ""); del.Code != http.StatusOK {
+	if del := adminReq(t, h, "DELETE", "/_/api/tokens/"+created.ID, admin, ""); del.Code != http.StatusOK {
 		t.Fatalf("delete status = %d", del.Code)
 	}
 	if up := upload(t, h, created.Secret, "file", "b.txt", "hi"); up.Code != http.StatusUnauthorized {
@@ -183,7 +183,7 @@ func TestAdminCreateTokenThenUpload(t *testing.T) {
 
 func TestAdminRequiresAdminRole(t *testing.T) {
 	_, h, _ := newTestServer(t)
-	if rec := adminReq(t, h, "GET", "/api/tokens", "", ""); rec.Code != http.StatusUnauthorized {
+	if rec := adminReq(t, h, "GET", "/_/api/tokens", "", ""); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated admin list: status %d", rec.Code)
 	}
 }
@@ -249,12 +249,12 @@ func TestAdminCannotDeleteRoot(t *testing.T) {
 		}
 	}
 	// Another admin tries to delete root; blocked (409).
-	rec := adminReq(t, h, "DELETE", "/api/tokens/"+rootID, adminSecret, "")
+	rec := adminReq(t, h, "DELETE", "/_/api/tokens/"+rootID, adminSecret, "")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("admin deleting root: status %d, want 409", rec.Code)
 	}
 	// Admins also can't mint a root via the API (403).
-	cr := adminReq(t, h, "POST", "/api/tokens", adminSecret, `{"label":"x","role":"root"}`)
+	cr := adminReq(t, h, "POST", "/_/api/tokens", adminSecret, `{"label":"x","role":"root"}`)
 	if cr.Code != http.StatusForbidden {
 		t.Fatalf("admin creating root: status %d, want 403", cr.Code)
 	}
@@ -291,7 +291,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Valid label (1-9 alphanumeric characters)
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"valid123","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"valid123","role":"upload"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("expected 201 for valid label, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -299,7 +299,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Invalid label: empty label (0 characters)
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"","role":"upload"}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for empty label, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -307,7 +307,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Invalid label: too long (10 characters)
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"invalid1234","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"invalid1234","role":"upload"}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for too long label, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -315,7 +315,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Invalid label: contains spaces
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"ab cd","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"ab cd","role":"upload"}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for label with space, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -323,7 +323,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Valid label: contains hyphens and underscores in the middle
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"ab-c_d","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"ab-c_d","role":"upload"}`)
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("expected 201 for label with middle hyphen/underscore, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -331,7 +331,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Invalid label: starts with hyphen
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"-abcd","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"-abcd","role":"upload"}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for label starting with hyphen, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -339,7 +339,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Invalid label: ends with underscore
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"abcd_","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"abcd_","role":"upload"}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for label ending with underscore, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -347,7 +347,7 @@ func TestTokenLabelValidation(t *testing.T) {
 
 	// Invalid label: contains invalid special characters (like @)
 	{
-		rec := adminReq(t, h, "POST", "/api/tokens", secret, `{"label":"ab@cd","role":"upload"}`)
+		rec := adminReq(t, h, "POST", "/_/api/tokens", secret, `{"label":"ab@cd","role":"upload"}`)
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for label with special character @, got %d: %s", rec.Code, rec.Body.String())
 		}
@@ -358,7 +358,7 @@ func TestTokenLabelValidation(t *testing.T) {
 // and one-time secret.
 func createUploadToken(t *testing.T, h http.Handler, admin, label string) (id, secret string) {
 	t.Helper()
-	rec := adminReq(t, h, "POST", "/api/tokens", admin, `{"label":"`+label+`","role":"upload"}`)
+	rec := adminReq(t, h, "POST", "/_/api/tokens", admin, `{"label":"`+label+`","role":"upload"}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("create token: status %d, body %q", rec.Code, rec.Body.String())
 	}
@@ -373,7 +373,7 @@ func TestUploadCountQuota(t *testing.T) {
 	srv, h, admin := newTestServer(t)
 	id, secret := createUploadToken(t, h, admin, "capped")
 
-	if rec := adminReq(t, h, "POST", "/api/tokens/"+id+"/limits", admin, `{"max_uploads":2}`); rec.Code != http.StatusOK {
+	if rec := adminReq(t, h, "POST", "/_/api/tokens/"+id+"/limits", admin, `{"max_uploads":2}`); rec.Code != http.StatusOK {
 		t.Fatalf("set limits: status %d, body %q", rec.Code, rec.Body.String())
 	}
 
@@ -400,7 +400,7 @@ func TestUploadByteQuota(t *testing.T) {
 	id, secret := createUploadToken(t, h, admin, "tiny")
 
 	// A 1-byte lifetime cap: any real upload exceeds the remaining budget.
-	if rec := adminReq(t, h, "POST", "/api/tokens/"+id+"/limits", admin, `{"max_bytes":1}`); rec.Code != http.StatusOK {
+	if rec := adminReq(t, h, "POST", "/_/api/tokens/"+id+"/limits", admin, `{"max_bytes":1}`); rec.Code != http.StatusOK {
 		t.Fatalf("set limits: status %d", rec.Code)
 	}
 	if up := upload(t, h, secret, "file", "a.txt", "hello world"); up.Code != http.StatusRequestEntityTooLarge {
@@ -413,7 +413,7 @@ func TestGlobalQuotaAndBypass(t *testing.T) {
 	id, secret := createUploadToken(t, h, admin, "globaled")
 
 	// A global one-upload cap applies to a token with no personal limits.
-	if rec := adminReq(t, h, "POST", "/api/global/limits", admin, `{"max_uploads":1}`); rec.Code != http.StatusOK {
+	if rec := adminReq(t, h, "POST", "/_/api/global/limits", admin, `{"max_uploads":1}`); rec.Code != http.StatusOK {
 		t.Fatalf("set global: status %d, body %q", rec.Code, rec.Body.String())
 	}
 	if up := upload(t, h, secret, "file", "a.txt", "hi"); up.Code != http.StatusOK {
@@ -424,7 +424,7 @@ func TestGlobalQuotaAndBypass(t *testing.T) {
 	}
 
 	// Granting the token a bypass lifts the global cap for it alone.
-	if rec := adminReq(t, h, "POST", "/api/tokens/"+id+"/limits", admin, `{"bypass":true}`); rec.Code != http.StatusOK {
+	if rec := adminReq(t, h, "POST", "/_/api/tokens/"+id+"/limits", admin, `{"bypass":true}`); rec.Code != http.StatusOK {
 		t.Fatalf("set bypass: status %d", rec.Code)
 	}
 	if up := upload(t, h, secret, "file", "c.txt", "hi"); up.Code != http.StatusOK {
@@ -588,13 +588,13 @@ func TestUserUploadsRoute(t *testing.T) {
 		t.Errorf("expected body to contain stripped link text %q, got: %s", expectedLink, rec.Body.String())
 	}
 
-	// API request to /api/tokens/{id}/uploads -> 200 OK JSON
-	apiReq := httptest.NewRequest("GET", "/api/tokens/"+id+"/uploads", nil)
+	// API request to /_/api/tokens/{id}/uploads -> 200 OK JSON
+	apiReq := httptest.NewRequest("GET", "/_/api/tokens/"+id+"/uploads", nil)
 	apiReq.Header.Set("Authorization", "Bearer "+admin)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, apiReq)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /api/tokens/%s/uploads status = %d, want 200", id, rec.Code)
+		t.Fatalf("GET /_/api/tokens/%s/uploads status = %d, want 200", id, rec.Code)
 	}
 	var jsonResp struct {
 		TokenID string `json:"token_id"`
@@ -702,9 +702,9 @@ func TestInviteSystem(t *testing.T) {
 	s, h, admin := newTestServer(t)
 	id, secret := createUploadToken(t, h, admin, "userone")
 
-	// 1. Initially userone has 0 invites, so /tokens/invite should fail
+	// 1. Initially userone has 0 invites, so /_/tokens/invite should fail
 	form := url.Values{"label": []string{"friend1"}, "_csrf": []string{"test"}}
-	req := httptest.NewRequest("POST", "/tokens/invite", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest("POST", "/_/tokens/invite", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
@@ -732,8 +732,8 @@ func TestInviteSystem(t *testing.T) {
 		t.Fatalf("expected 1 invite left for userone, got %d", recUser.Invites)
 	}
 
-	// 5. Admin can also create tokens via /tokens/invite without decrements
-	adminReq := httptest.NewRequest("POST", "/tokens/invite", strings.NewReader(form.Encode()))
+	// 5. Admin can also create tokens via /_/tokens/invite without decrements
+	adminReq := httptest.NewRequest("POST", "/_/tokens/invite", strings.NewReader(form.Encode()))
 	adminReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	adminReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: admin})
 	adminReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
@@ -748,9 +748,9 @@ func TestTokenRename(t *testing.T) {
 	s, h, admin := newTestServer(t)
 	id, secret := createUploadToken(t, h, admin, "oldname")
 
-	// 1. User can rename their own token via POST /tokens/{id}/label
+	// 1. User can rename their own token via POST /_/tokens/{id}/label
 	form := url.Values{"label": []string{"newname"}, "_csrf": []string{"test"}}
-	req := httptest.NewRequest("POST", "/tokens/"+id+"/label", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest("POST", "/_/tokens/"+id+"/label", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
@@ -766,7 +766,7 @@ func TestTokenRename(t *testing.T) {
 	}
 
 	// 2. User cannot rename another user's token
-	otherReq := httptest.NewRequest("POST", "/tokens/otherid/label", strings.NewReader(form.Encode()))
+	otherReq := httptest.NewRequest("POST", "/_/tokens/otherid/label", strings.NewReader(form.Encode()))
 	otherReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	otherReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
 	otherReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
@@ -778,7 +778,7 @@ func TestTokenRename(t *testing.T) {
 
 	// 3. Admin can rename any token via JSON API
 	jsonBody := strings.NewReader(`{"label":"adm-ren"}`)
-	apiReq := httptest.NewRequest("POST", "/api/tokens/"+id+"/label", jsonBody)
+	apiReq := httptest.NewRequest("POST", "/_/api/tokens/"+id+"/label", jsonBody)
 	apiReq.Header.Set("Content-Type", "application/json")
 	apiReq.Header.Set("Authorization", "Bearer "+admin)
 	rec = httptest.NewRecorder()
@@ -848,7 +848,7 @@ func TestGiveawayInvites(t *testing.T) {
 	form := url.Values{}
 	form.Set("count", "3")
 	form.Set("_csrf", "test")
-	req := httptest.NewRequest("POST", "/tokens/giveaway", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest("POST", "/_/tokens/giveaway", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
@@ -865,7 +865,7 @@ func TestGiveawayInvites(t *testing.T) {
 
 	// 2. JSON API Giveaway: grant +2 more invites
 	jsonBody := strings.NewReader(`{"count":2}`)
-	apiReq := httptest.NewRequest("POST", "/api/tokens/giveaway", jsonBody)
+	apiReq := httptest.NewRequest("POST", "/_/api/tokens/giveaway", jsonBody)
 	apiReq.Header.Set("Content-Type", "application/json")
 	apiReq.Header.Set("Authorization", "Bearer "+adminSecret)
 	rec = httptest.NewRecorder()
@@ -918,7 +918,7 @@ func TestTokenPromotionDemotion(t *testing.T) {
 
 	// 1. Non-root admin tries to promote uploader to admin -> fails (redirect to dashboard with error or forbidden)
 	form := url.Values{"role": []string{"admin"}, "_csrf": []string{"test"}}
-	req := httptest.NewRequest("POST", "/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest("POST", "/_/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
@@ -934,7 +934,7 @@ func TestTokenPromotionDemotion(t *testing.T) {
 	}
 
 	// 2. Root tries to promote uploader to admin -> succeeds
-	reqRoot := httptest.NewRequest("POST", "/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
+	reqRoot := httptest.NewRequest("POST", "/_/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
 	reqRoot.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqRoot.AddCookie(&http.Cookie{Name: adminCookieName, Value: rootSecret})
 	reqRoot.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
@@ -951,7 +951,7 @@ func TestTokenPromotionDemotion(t *testing.T) {
 
 	// 3. API endpoint: Non-root tries to demote back to upload -> fails (401 root required)
 	jsonBody := strings.NewReader(`{"role":"upload"}`)
-	apiReq := httptest.NewRequest("POST", "/api/tokens/"+uploadID+"/role", jsonBody)
+	apiReq := httptest.NewRequest("POST", "/_/api/tokens/"+uploadID+"/role", jsonBody)
 	apiReq.Header.Set("Content-Type", "application/json")
 	apiReq.Header.Set("Authorization", "Bearer "+adminSecret)
 	recAPI := httptest.NewRecorder()
@@ -962,7 +962,7 @@ func TestTokenPromotionDemotion(t *testing.T) {
 
 	// 4. API endpoint: Root demotes back to upload -> succeeds
 	jsonBodyRoot := strings.NewReader(`{"role":"upload"}`)
-	apiReqRoot := httptest.NewRequest("POST", "/api/tokens/"+uploadID+"/role", jsonBodyRoot)
+	apiReqRoot := httptest.NewRequest("POST", "/_/api/tokens/"+uploadID+"/role", jsonBodyRoot)
 	apiReqRoot.Header.Set("Content-Type", "application/json")
 	apiReqRoot.Header.Set("Authorization", "Bearer "+rootSecret)
 	recAPIRoot := httptest.NewRecorder()
@@ -986,12 +986,12 @@ func TestInvitePolicyAndGiveaways(t *testing.T) {
 	_, _ = createUploadToken(t, h, rootSecret, "user3")
 
 	// 1. Get initial invite policy
-	req := httptest.NewRequest("GET", "/api/invite-policy", nil)
+	req := httptest.NewRequest("GET", "/_/api/invite-policy", nil)
 	req.Header.Set("Authorization", "Bearer "+rootSecret)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /api/invite-policy status = %d, want 200", rec.Code)
+		t.Fatalf("GET /_/api/invite-policy status = %d, want 200", rec.Code)
 	}
 
 	// 2. Set invite policy via API
@@ -1007,13 +1007,13 @@ func TestInvitePolicyAndGiveaways(t *testing.T) {
 		"newuser_delay": 0,
 		"newuser_max": 10
 	}`
-	req = httptest.NewRequest("POST", "/api/invite-policy", strings.NewReader(polJSON))
+	req = httptest.NewRequest("POST", "/_/api/invite-policy", strings.NewReader(polJSON))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+rootSecret)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/invite-policy status = %d, want 200", rec.Code)
+		t.Fatalf("POST /_/api/invite-policy status = %d, want 200", rec.Code)
 	}
 
 	pol := srv.store.InvitePolicy()
@@ -1023,13 +1023,13 @@ func TestInvitePolicyAndGiveaways(t *testing.T) {
 
 	// 3. Test Random Giveaway API with max cap
 	giveawayJSON := `{"count": 3, "mode": "random", "pool": 2, "max_cap": 4}`
-	req = httptest.NewRequest("POST", "/api/tokens/giveaway", strings.NewReader(giveawayJSON))
+	req = httptest.NewRequest("POST", "/_/api/tokens/giveaway", strings.NewReader(giveawayJSON))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+rootSecret)
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /api/tokens/giveaway status = %d, want 200: %s", rec.Code, rec.Body.String())
+		t.Fatalf("POST /_/api/tokens/giveaway status = %d, want 200: %s", rec.Code, rec.Body.String())
 	}
 
 	// Verify at most 2 uploaders got invites clamped at max cap 4

@@ -37,7 +37,7 @@
 
     <fieldset>
         <legend>create token</legend>
-        <form method="POST" action="/tokens/create" class="bar">
+        <form method="POST" action="/_/tokens/create" class="bar">
             <input type="hidden" name="_csrf" value="{{.CSRF}}">
             <input name="label" placeholder="label (e.g. laptop)" required
                 pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
@@ -112,7 +112,7 @@
                             data-monthly-uploads="{{with .Limits.MonthlyUploads}}{{.}}{{end}}"
                             data-invites="{{with .Invites}}{{.}}{{end}}"
                             data-bypass="{{if .Bypass}}1{{end}}">Limits & Invites</button>
-                        <form method="POST" action="/tokens/{{.ID}}/toggle" class="ctx-form">
+                        <form method="POST" action="/_/tokens/{{.ID}}/toggle" class="ctx-form">
                             <input type="hidden" name="_csrf" value="{{$.CSRF}}">
                             <input type="hidden" name="disable" value="{{if .Disabled}}false{{else}}true{{end}}">
                             <button class="ctx-item" type="submit">{{if .Disabled}}Enable{{else}}Disable{{end}}</button>
@@ -239,7 +239,7 @@
     </dialog>
 
     <dialog id="giveawaydlg">
-        <form method="POST" action="/tokens/giveaway">
+        <form method="POST" action="/_/tokens/giveaway">
             <input type="hidden" name="_csrf" value="{{.CSRF}}">
             <p class="dlg-title">Giveaway Invites</p>
             <p class="dlg-desc">Grant additional invite credits to users with the <code>upload</code> role.</p>

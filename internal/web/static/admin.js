@@ -280,7 +280,7 @@ class AdminDashboard {
       button.addEventListener("click", () => {
         const id = button.dataset.deleteId;
         message.textContent = `Delete token ${id}? Uploads using it stop working immediately.`;
-        form.action = `/tokens/${id}/delete`;
+        form.action = `/_/tokens/${id}/delete`;
         dialog.showModal();
       });
     });
@@ -305,7 +305,7 @@ class AdminDashboard {
 
         targetInput.value = targetRole;
         message.textContent = `${label} for token ${id}?`;
-        form.action = `/tokens/${id}/role`;
+        form.action = `/_/tokens/${id}/role`;
         dialog.showModal();
       });
     });
@@ -332,7 +332,7 @@ class AdminDashboard {
         input.value = button.dataset.label || "";
         input.classList.remove("invalid");
         if (errorEl) errorEl.hidden = true;
-        form.action = `/tokens/${id}/label`;
+        form.action = `/_/tokens/${id}/label`;
         dialog.showModal();
       });
     });
@@ -358,7 +358,7 @@ class AdminDashboard {
       button.addEventListener("click", () => {
         const id = button.dataset.limitId;
         target.textContent = id;
-        form.action = `/tokens/${id}/limits`;
+        form.action = `/_/tokens/${id}/limits`;
         form.elements["max_bytes"].value = button.dataset.maxBytes || "";
         form.elements["max_uploads"].value = button.dataset.maxUploads || "";
         form.elements["monthly_bytes"].value =
