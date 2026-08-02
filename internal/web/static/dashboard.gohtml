@@ -181,7 +181,7 @@
 		<tbody>
 			{{ range .Tokens }}
 				<tr class="{{ if .Disabled }}off{{ end }} {{ if eq .ID $.CurrentToken.ID }}me{{ end }}">
-					<td data-label="ID"><a href="/_/users/{{ .ID }}" class="id-link"><code>{{ .ID }}</code></a></td>
+					<td data-label="ID"><a href="/_/user/{{ .ID }}" class="id-link"><code>{{ .ID }}</code></a></td>
 					<td data-label="Label">{{ .Label }}</td>
 					<td data-label="Role">{{ .Role }}</td>
 					<td data-label="Status">{{ if .Disabled }}disabled{{ else }}active{{ end }}</td>
@@ -212,7 +212,7 @@
 						{{ if ne .Role "root" }}<div class="ctx">
 								<button type="button" class="ctx-trigger" aria-label="Actions">⋯</button>
 								<div class="ctx-menu">
-									<a href="/_/users/{{ .ID }}" class="ctx-item">Profile</a>
+									<a href="/_/user/{{ .ID }}" class="ctx-item">Profile</a>
 									<a href="/_/uploads/{{ .ID }}" class="ctx-item">Files</a>
 									<button type="button" class="ctx-item" data-rename-id="{{ .ID }}"
 										data-label="{{ .Label }}">Rename</button>
