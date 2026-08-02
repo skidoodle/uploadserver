@@ -63,6 +63,7 @@ type adminPageData struct {
 	Error        string
 	Secret       *newTokenSecret // non-nil when a token was just created
 	CSRF         string
+	InvPolicy    internal.InvitePolicy
 }
 
 // usersPageData is the template data for the paginated users management page.
@@ -83,6 +84,7 @@ type usersPageData struct {
 	Global          internal.Limits
 	Error           string
 	Secret          *newTokenSecret
+	InvPolicy       internal.InvitePolicy
 }
 
 // newTokenSecret holds the one-time secret displayed after creating a token.

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -42,11 +43,38 @@ var labelRe = regexp.MustCompile("^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
 // bbolt key space: every token record lives in tokenBucket keyed by its id, and
 // the single server-wide quota lives in metaBucket under globalKey.
 var (
-	tokenBucket  = []byte("tokens")
-	metaBucket   = []byte("meta")
-	globalKey    = []byte("global")
-	uploadBucket = []byte("uploads")
+	tokenBucket     = []byte("tokens")
+	metaBucket      = []byte("meta")
+	globalKey       = []byte("global")
+	invitePolicyKey = []byte("invite_policy")
+	uploadBucket    = []byte("uploads")
+	pendingBucket   = []byte("pending_grants")
 )
+
+// InvitePolicy holds the server-wide invite distribution configuration.
+type InvitePolicy struct {
+	// Scheduled periodic giveaway
+	SchedEnabled  bool   `json:"sched_on,omitempty"`
+	SchedInterval int64  `json:"sched_interval,omitempty"` // seconds between cycles
+	SchedCount    int    `json:"sched_count,omitempty"`    // invites per cycle
+	SchedMode     string `json:"sched_mode,omitempty"`     // "all" or "random"
+	SchedPool     int    `json:"sched_pool,omitempty"`     // users to pick when random
+	SchedMax      int    `json:"sched_max,omitempty"`      // max invites a user can hold
+
+	// New member auto-grant
+	NewUserEnabled bool  `json:"newuser_on,omitempty"`
+	NewUserCount   int   `json:"newuser_count,omitempty"` // invites to grant
+	NewUserDelay   int64 `json:"newuser_delay,omitempty"` // seconds to wait
+	NewUserMax     int   `json:"newuser_max,omitempty"`   // max invites cap
+}
+
+// PendingGrant is a delayed invite grant for a newly created user.
+type PendingGrant struct {
+	TokenID string    `json:"token_id"`
+	Count   int       `json:"count"`
+	MaxCap  int       `json:"max_cap"`
+	GrantAt time.Time `json:"grant_at"`
+}
 
 // UploadEntry records a single file uploaded by a token.
 type UploadEntry struct {
@@ -109,6 +137,9 @@ func OpenStore(path string) (*TokenStore, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(uploadBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(pendingBucket); err != nil {
 			return err
 		}
 		_, err := tx.CreateBucketIfNotExists(metaBucket)
@@ -399,6 +430,12 @@ func (s *TokenStore) SetInvites(id string, invites int) error {
 // AddInvitesToAllUploaders adds count invite credits to every token with the upload role.
 // Returns the number of tokens updated.
 func (s *TokenStore) AddInvitesToAllUploaders(count int) (int, error) {
+	return s.AddInvitesToAllUploadersCapped(count, 0)
+}
+
+// AddInvitesToAllUploadersCapped adds count invite credits to every upload token.
+// If maxCap > 0, each user's invites are clamped to maxCap.
+func (s *TokenStore) AddInvitesToAllUploadersCapped(count, maxCap int) (int, error) {
 	if count <= 0 {
 		return 0, nil
 	}
@@ -408,14 +445,62 @@ func (s *TokenStore) AddInvitesToAllUploaders(count int) (int, error) {
 		var targets []TokenRecord
 		_ = b.ForEach(func(_, v []byte) error {
 			var r TokenRecord
-			if json.Unmarshal(v, &r) == nil && r.Role == RoleUpload {
+			if json.Unmarshal(v, &r) == nil && r.Role == RoleUpload && !r.Disabled {
+				if maxCap > 0 && r.Invites >= maxCap {
+					return nil // already at cap
+				}
 				r.Invites += count
+				if maxCap > 0 && r.Invites > maxCap {
+					r.Invites = maxCap
+				}
 				targets = append(targets, r)
 			}
 			return nil
 		})
 		for i := range targets {
 			if err := putRecord(tx, &targets[i]); err != nil {
+				return err
+			}
+			updated++
+		}
+		return nil
+	})
+	return updated, err
+}
+
+// AddInvitesToRandomUploaders gives count invites to poolSize randomly selected
+// upload tokens. If maxCap > 0, each user's invites are clamped.
+func (s *TokenStore) AddInvitesToRandomUploaders(count, poolSize, maxCap int) (int, error) {
+	if count <= 0 || poolSize <= 0 {
+		return 0, nil
+	}
+	updated := 0
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(tokenBucket)
+		var eligible []TokenRecord
+		_ = b.ForEach(func(_, v []byte) error {
+			var r TokenRecord
+			if json.Unmarshal(v, &r) == nil && r.Role == RoleUpload && !r.Disabled {
+				if maxCap <= 0 || r.Invites < maxCap {
+					eligible = append(eligible, r)
+				}
+			}
+			return nil
+		})
+		if len(eligible) == 0 {
+			return nil
+		}
+		// Shuffle and pick
+		rand.Shuffle(len(eligible), func(i, j int) {
+			eligible[i], eligible[j] = eligible[j], eligible[i]
+		})
+		n := min(poolSize, len(eligible))
+		for i := range n {
+			eligible[i].Invites += count
+			if maxCap > 0 && eligible[i].Invites > maxCap {
+				eligible[i].Invites = maxCap
+			}
+			if err := putRecord(tx, &eligible[i]); err != nil {
 				return err
 			}
 			updated++
@@ -471,7 +556,100 @@ func (s *TokenStore) AddWithInvite(creatorID, label string) (id, secret string, 
 	if err != nil {
 		return "", "", err
 	}
+	// Schedule delayed invite grant for new members if policy is enabled.
+	_ = s.ScheduleNewUserGrant(rec.ID)
 	return rec.ID, secret, nil
+}
+
+// ScheduleNewUserGrant adds a pending grant that fires after delay seconds.
+// Called automatically when a user is created via invite and newuser policy is enabled.
+func (s *TokenStore) ScheduleNewUserGrant(tokenID string) error {
+	pol := s.InvitePolicy()
+	if !pol.NewUserEnabled || pol.NewUserCount <= 0 {
+		return nil
+	}
+	g := PendingGrant{
+		TokenID: tokenID,
+		Count:   pol.NewUserCount,
+		MaxCap:  pol.NewUserMax,
+		GrantAt: time.Now().UTC().Add(time.Duration(pol.NewUserDelay) * time.Second),
+	}
+	v, err := json.Marshal(g)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(pendingBucket).Put([]byte(tokenID), v)
+	})
+}
+
+// ProcessPendingGrants applies all grants whose GrantAt has passed, then deletes them.
+// Returns the number of grants applied.
+func (s *TokenStore) ProcessPendingGrants() (int, error) {
+	now := time.Now().UTC()
+	applied := 0
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		pb := tx.Bucket(pendingBucket)
+		var done [][]byte
+		_ = pb.ForEach(func(k, v []byte) error {
+			var g PendingGrant
+			if json.Unmarshal(v, &g) != nil {
+				done = append(done, k) // corrupted, remove
+				return nil
+			}
+			if now.Before(g.GrantAt) {
+				return nil // not yet due
+			}
+			r, err := getRecord(tx, g.TokenID)
+			if err != nil {
+				done = append(done, k) // token deleted, clean up
+				return nil
+			}
+			if g.MaxCap > 0 && r.Invites >= g.MaxCap {
+				done = append(done, k)
+				return nil
+			}
+			r.Invites += g.Count
+			if g.MaxCap > 0 && r.Invites > g.MaxCap {
+				r.Invites = g.MaxCap
+			}
+			if err := putRecord(tx, r); err != nil {
+				return err
+			}
+			applied++
+			done = append(done, k)
+			return nil
+		})
+		for _, k := range done {
+			_ = pb.Delete(k)
+		}
+		return nil
+	})
+	return applied, err
+}
+
+// InvitePolicy returns the current server-wide invite distribution policy.
+func (s *TokenStore) InvitePolicy() InvitePolicy {
+	var pol InvitePolicy
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(metaBucket).Get(invitePolicyKey)
+		if v != nil {
+			_ = json.Unmarshal(v, &pol)
+		}
+		return nil
+	})
+	return pol
+}
+
+// SetInvitePolicy replaces the server-wide invite distribution policy.
+func (s *TokenStore) SetInvitePolicy(pol InvitePolicy) error {
+	v, err := json.Marshal(pol)
+	if err != nil {
+		return err
+	}
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(metaBucket).Put(invitePolicyKey, v)
+	})
 }
 
 // SetGlobalLimits replaces the server-wide default quota applied to every token

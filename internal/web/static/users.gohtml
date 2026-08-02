@@ -242,10 +242,29 @@
         <form method="POST" action="/tokens/giveaway">
             <input type="hidden" name="_csrf" value="{{.CSRF}}">
             <p class="dlg-title">Giveaway Invites</p>
-            <p class="dlg-desc">Grant additional invite credits to all users with the <code>upload</code> role.</p>
-            <label class="dlg-label">Invites per user
-                <input type="number" name="count" min="1" max="100" value="1" required>
-            </label>
+            <p class="dlg-desc">Grant additional invite credits to users with the <code>upload</code> role.</p>
+            <div class="lim-grid" style="margin-bottom: 0.8rem;">
+            <div class="dlg-label">
+                <span>Target</span>
+                <div class="csel" id="giveawayModeSel">
+                    <button type="button" class="csel-btn" id="giveawayModeBtn">All uploaders</button>
+                    <div class="csel-opts" id="giveawayModeOpts">
+                        <div class="csel-opt active" data-value="all">All uploaders</div>
+                        <div class="csel-opt" data-value="random">Random pool</div>
+                    </div>
+                </div>
+                <input type="hidden" name="mode" id="giveawayMode" value="all">
+            </div>
+                <label class="dlg-label">Invites per user
+                    <input type="number" name="count" min="1" max="1000" value="1" required>
+                </label>
+                <label class="dlg-label" id="giveawayPoolGroup" hidden>Pool size (users)
+                    <input type="number" name="pool" min="1" max="10000" value="5">
+                </label>
+                <label class="dlg-label">Max cap (0 = unlimited)
+                    <input type="number" name="max_cap" min="0" max="10000" value="0" placeholder="0">
+                </label>
+            </div>
             <div class="bar bar-end">
                 <button type="button" data-cancel>Cancel</button>
                 <button type="submit">Grant Invites</button>

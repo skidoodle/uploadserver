@@ -53,6 +53,11 @@ func Run() (err error) {
 		MaxHeaderBytes:    1 << 16, // 64 KiB
 	}
 
+	// Start background invite scheduler for periodic giveaways and pending grants.
+	inviteSched := internal.NewInviteScheduler(store)
+	inviteSched.Start()
+	defer inviteSched.Stop()
+
 	// Graceful shutdown on SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

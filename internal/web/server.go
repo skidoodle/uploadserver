@@ -62,6 +62,9 @@ func (s *server) routes() http.Handler {
 		mux.HandleFunc("GET /api/tokens/{id}/uploads", s.handleAPITokenUploads)
 		mux.HandleFunc("POST /tokens/{id}/role", s.handleAdminSetRoleSSR)
 		mux.HandleFunc("POST /api/tokens/{id}/role", s.handleSetRole)
+		mux.HandleFunc("POST /invite-policy", s.handleSetInvitePolicySSR)
+		mux.HandleFunc("GET /api/invite-policy", s.handleGetInvitePolicyAPI)
+		mux.HandleFunc("POST /api/invite-policy", s.handleSetInvitePolicyAPI)
 		mux.HandleFunc("GET /_/uploads/{id}", s.handleUserUploads)
 		mux.HandleFunc("GET /_/users", s.handleAdminUsersPage)
 	}

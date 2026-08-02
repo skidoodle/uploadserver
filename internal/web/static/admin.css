@@ -142,6 +142,7 @@ button {
     position: relative;
     display: inline-block;
     min-width: 9.5rem;
+    box-sizing: border-box;
 
     .csel-btn {
         font: inherit;
@@ -211,6 +212,11 @@ button {
             border-top: 1px solid var(--border-color-opts);
         }
     }
+}
+
+.lim-grid .csel,
+label .csel {
+    width: 100%;
 }
 
 .act {
@@ -414,7 +420,8 @@ dialog {
     gap: 0.6rem 0.8rem;
     margin: 0 0 0.6rem;
 
-    label {
+    label,
+    .policy-field {
         display: flex;
         flex-direction: column;
         gap: 0.25rem;
@@ -425,6 +432,48 @@ dialog {
     input {
         width: 100%;
         box-sizing: border-box;
+    }
+}
+
+select {
+    font: inherit;
+    font-size: 0.85rem;
+    padding: 0.45rem 0.6rem;
+    padding-right: 2rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-surface) url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 6l5 5 5-5" fill="none" stroke="%23888" stroke-width="2"/></svg>') no-repeat right 0.65rem center/0.72em 0.72em;
+    color: var(--fg-field);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 100%;
+    box-sizing: border-box;
+
+    &:focus-visible {
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 1px;
+    }
+}
+
+.policy-heading {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--fg-muted);
+    margin: 0.4rem 0 0.5rem;
+}
+
+.chk-label {
+    grid-column: 1 / -1;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+
+    input[type="checkbox"] {
+        width: auto !important;
+        margin: 0;
     }
 }
 

@@ -125,7 +125,10 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	csrf := generateCSRF()
 	setCSRFCookie(w, r, csrf)
 
-	data := adminPageData{CSRF: csrf}
+	data := adminPageData{
+		CSRF:      csrf,
+		InvPolicy: s.store.InvitePolicy(),
+	}
 
 	if c, err := r.Cookie(adminCookieName); err == nil {
 		if rec, ok := s.store.Authenticate(c.Value); ok {
@@ -817,6 +820,7 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		PageEnd:         end,
 		Query:           query,
 		Global:          s.store.GlobalLimits(),
+		InvPolicy:       s.store.InvitePolicy(),
 	}
 
 	// Read flash cookies
@@ -875,7 +879,20 @@ func (s *server) handleGiveawaySSR(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = s.store.AddInvitesToAllUploaders(count)
+	mode := r.FormValue("mode")
+	pool, _ := strconv.Atoi(r.FormValue("pool"))
+	maxCap, _ := strconv.Atoi(r.FormValue("max_cap"))
+
+	if mode == "random" {
+		if pool <= 0 {
+			redirectWithError(w, r, "pool size must be positive for random mode")
+			return
+		}
+		_, err = s.store.AddInvitesToRandomUploaders(count, pool, maxCap)
+	} else {
+		_, err = s.store.AddInvitesToAllUploadersCapped(count, maxCap)
+	}
+
 	if err != nil {
 		redirectWithError(w, r, err.Error())
 		return
@@ -890,14 +907,28 @@ func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Count int `json:"count"`
+		Count  int    `json:"count"`
+		Mode   string `json:"mode"`
+		Pool   int    `json:"pool"`
+		MaxCap int    `json:"max_cap"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Count <= 0 {
 		httpError(w, http.StatusBadRequest, "count must be a positive integer")
 		return
 	}
 
-	updated, err := s.store.AddInvitesToAllUploaders(req.Count)
+	var updated int
+	var err error
+	if req.Mode == "random" {
+		if req.Pool <= 0 {
+			httpError(w, http.StatusBadRequest, "pool size must be positive for random mode")
+			return
+		}
+		updated, err = s.store.AddInvitesToRandomUploaders(req.Count, req.Pool, req.MaxCap)
+	} else {
+		updated, err = s.store.AddInvitesToAllUploadersCapped(req.Count, req.MaxCap)
+	}
+
 	if err != nil {
 		writeStoreErr(w, err)
 		return
@@ -909,4 +940,67 @@ func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
 		"updated_users": updated,
 		"added_invites": req.Count,
 	})
+}
+
+// handleSetInvitePolicySSR handles setting the invite policy via form submission.
+func (s *server) handleSetInvitePolicySSR(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminCookie(w, r) {
+		return
+	}
+	if !validateCSRF(r) {
+		redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	schedInterval, _ := strconv.Atoi(r.FormValue("sched_interval"))
+	schedCount, _ := strconv.Atoi(r.FormValue("sched_count"))
+	schedPool, _ := strconv.Atoi(r.FormValue("sched_pool"))
+	schedMax, _ := strconv.Atoi(r.FormValue("sched_max"))
+	newuserCount, _ := strconv.Atoi(r.FormValue("newuser_count"))
+	newuserDelay, _ := strconv.Atoi(r.FormValue("newuser_delay"))
+	newuserMax, _ := strconv.Atoi(r.FormValue("newuser_max"))
+
+	pol := internal.InvitePolicy{
+		SchedEnabled:   r.FormValue("sched_on") != "",
+		SchedInterval:  int64(schedInterval),
+		SchedCount:     schedCount,
+		SchedMode:      r.FormValue("sched_mode"),
+		SchedPool:      schedPool,
+		SchedMax:       schedMax,
+		NewUserEnabled: r.FormValue("newuser_on") != "",
+		NewUserCount:   newuserCount,
+		NewUserDelay:   int64(newuserDelay),
+		NewUserMax:     newuserMax,
+	}
+
+	if err := s.store.SetInvitePolicy(pol); err != nil {
+		redirectWithError(w, r, err.Error())
+		return
+	}
+	redirect(w, r)
+}
+
+// handleSetInvitePolicyAPI handles setting the invite policy via JSON API.
+func (s *server) handleSetInvitePolicyAPI(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	var pol internal.InvitePolicy
+	if err := json.NewDecoder(r.Body).Decode(&pol); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if err := s.store.SetInvitePolicy(pol); err != nil {
+		writeStoreErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleGetInvitePolicyAPI handles getting the invite policy via JSON API.
+func (s *server) handleGetInvitePolicyAPI(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	writeJSON(w, http.StatusOK, s.store.InvitePolicy())
 }

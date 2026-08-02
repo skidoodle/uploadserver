@@ -976,3 +976,98 @@ func TestTokenPromotionDemotion(t *testing.T) {
 		t.Fatalf("expected role to become upload, got %s", recUser.Role)
 	}
 }
+
+func TestInvitePolicyAndGiveaways(t *testing.T) {
+	srv, h, rootSecret := newTestServer(t)
+
+	// Create 3 upload tokens
+	id1, secret1 := createUploadToken(t, h, rootSecret, "user1")
+	_, secret2 := createUploadToken(t, h, rootSecret, "user2")
+	_, _ = createUploadToken(t, h, rootSecret, "user3")
+
+	// 1. Get initial invite policy
+	req := httptest.NewRequest("GET", "/api/invite-policy", nil)
+	req.Header.Set("Authorization", "Bearer "+rootSecret)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/invite-policy status = %d, want 200", rec.Code)
+	}
+
+	// 2. Set invite policy via API
+	polJSON := `{
+		"sched_on": true,
+		"sched_interval": 3600,
+		"sched_count": 2,
+		"sched_mode": "random",
+		"sched_pool": 2,
+		"sched_max": 5,
+		"newuser_on": true,
+		"newuser_count": 3,
+		"newuser_delay": 0,
+		"newuser_max": 10
+	}`
+	req = httptest.NewRequest("POST", "/api/invite-policy", strings.NewReader(polJSON))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+rootSecret)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/invite-policy status = %d, want 200", rec.Code)
+	}
+
+	pol := srv.store.InvitePolicy()
+	if !pol.SchedEnabled || pol.SchedInterval != 3600 || pol.SchedCount != 2 || pol.SchedMode != "random" {
+		t.Errorf("InvitePolicy mismatch: %+v", pol)
+	}
+
+	// 3. Test Random Giveaway API with max cap
+	giveawayJSON := `{"count": 3, "mode": "random", "pool": 2, "max_cap": 4}`
+	req = httptest.NewRequest("POST", "/api/tokens/giveaway", strings.NewReader(giveawayJSON))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+rootSecret)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/tokens/giveaway status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+
+	// Verify at most 2 uploaders got invites clamped at max cap 4
+	rec1, _ := srv.store.Authenticate(secret1)
+	rec2, _ := srv.store.Authenticate(secret2)
+	totalInvites := rec1.Invites + rec2.Invites
+	if totalInvites > 8 {
+		t.Errorf("expected max invites to be capped at 4 per user, got user1=%d, user2=%d", rec1.Invites, rec2.Invites)
+	}
+
+	// 4. Test AddWithInvite auto-scheduling pending grant when newuser_on is true
+	_ = srv.store.SetInvites(id1, 1)
+	newID, _, err := srv.store.AddWithInvite(id1, "invited1")
+	if err != nil {
+		t.Fatalf("AddWithInvite failed: %v", err)
+	}
+
+	// Process due pending grants
+	applied, err := srv.store.ProcessPendingGrants()
+	if err != nil {
+		t.Fatalf("ProcessPendingGrants error: %v", err)
+	}
+	if applied != 1 {
+		t.Errorf("expected 1 applied pending grant, got %d", applied)
+	}
+
+	// Verify the new user received 3 invites
+	var found *internal.TokenRecord
+	for _, r := range srv.store.List() {
+		if r.ID == newID {
+			found = &r
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("failed to fetch newly invited token record")
+	}
+	if found.Invites != 3 {
+		t.Errorf("expected new user to receive 3 invites from auto-grant, got %d", found.Invites)
+	}
+}

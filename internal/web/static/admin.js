@@ -21,7 +21,7 @@ class AdminDashboard {
     this.#roleOptionsContainer = document.getElementById("roleOpts");
     this.#roleHiddenInput = document.getElementById("role");
 
-    this.#initRoleSelector();
+    this.#initCustomSelectors();
     this.#initContextMenus();
     this.#initLabelValidation();
     this.#initSecretCard();
@@ -30,6 +30,7 @@ class AdminDashboard {
     this.#initRenameDialog();
     this.#initLimitsDialog();
     this.#initGiveawayDialog();
+    this.#initInvitePolicyForm();
     this.#initQuotaForm(
       document.getElementById("globalForm"),
       document.getElementById("global-err"),
@@ -45,46 +46,60 @@ class AdminDashboard {
       });
   }
 
-  #initRoleSelector() {
-    if (
-      !this.#roleSelector ||
-      !this.#roleButton ||
-      !this.#roleOptionsContainer ||
-      !this.#roleHiddenInput
-    ) {
-      return;
-    }
+  #initCustomSelectors() {
+    document.querySelectorAll(".csel").forEach((container) => {
+      const button = container.querySelector(".csel-btn");
+      const optionsContainer = container.querySelector(".csel-opts");
+      if (!button || !optionsContainer) return;
 
-    this.#roleButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      this.#roleSelector.classList.toggle("open");
-    });
+      const hiddenInput =
+        container.querySelector('input[type="hidden"]') ||
+        container.nextElementSibling;
 
-    this.#roleOptionsContainer.addEventListener("click", (event) => {
-      const option = event.target.closest(".csel-opt");
-      if (!option) return;
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        document.querySelectorAll(".csel.open").forEach((c) => {
+          if (c !== container) c.classList.remove("open");
+        });
+        container.classList.toggle("open");
+      });
 
-      this.#roleOptionsContainer
-        .querySelectorAll(".csel-opt")
-        .forEach((opt) => {
+      optionsContainer.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const option = event.target.closest(".csel-opt");
+        if (!option) return;
+
+        optionsContainer.querySelectorAll(".csel-opt").forEach((opt) => {
           opt.classList.remove("active");
         });
 
-      option.classList.add("active");
-      this.#roleHiddenInput.value = option.dataset.value;
-      this.#roleButton.textContent = option.textContent;
-      this.#roleSelector.classList.remove("open");
+        option.classList.add("active");
+        if (hiddenInput && hiddenInput.tagName === "INPUT") {
+          const oldVal = hiddenInput.value;
+          hiddenInput.value = option.dataset.value;
+          if (oldVal !== option.dataset.value) {
+            hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
+          }
+        }
+        button.textContent = option.textContent;
+        container.classList.remove("open");
+      });
     });
 
     document.addEventListener("click", (event) => {
-      if (!this.#roleSelector.contains(event.target)) {
-        this.#roleSelector.classList.remove("open");
+      if (!event.target.closest(".csel")) {
+        document.querySelectorAll(".csel.open").forEach((c) => {
+          c.classList.remove("open");
+        });
       }
     });
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        this.#roleSelector.classList.remove("open");
+        document.querySelectorAll(".csel.open").forEach((c) => {
+          c.classList.remove("open");
+        });
       }
     });
   }
@@ -441,12 +456,31 @@ class AdminDashboard {
     const button = document.getElementById("giveawayBtn");
     if (!dialog || !button) return;
 
+    const modeSelect = document.getElementById("giveawayMode");
+    const poolGroup = document.getElementById("giveawayPoolGroup");
+
+    if (modeSelect && poolGroup) {
+      modeSelect.addEventListener("change", () => {
+        poolGroup.hidden = modeSelect.value !== "random";
+      });
+    }
+
     button.addEventListener("click", () => {
       dialog.showModal();
     });
 
     dialog.querySelector("[data-cancel]")?.addEventListener("click", () => {
       dialog.close();
+    });
+  }
+
+  #initInvitePolicyForm() {
+    const modeSelect = document.getElementById("schedModeSelect");
+    const poolGroup = document.getElementById("schedPoolGroup");
+    if (!modeSelect || !poolGroup) return;
+
+    modeSelect.addEventListener("change", () => {
+      poolGroup.hidden = modeSelect.value !== "random";
     });
   }
 }

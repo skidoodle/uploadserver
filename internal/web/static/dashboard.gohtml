@@ -57,19 +57,82 @@
     <form method="POST" action="/global/limits" id="globalForm">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <div class="lim-grid">
-            <label>Total size<input name="max_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"
-                    value="{{with .Global.MaxBytes}}{{humanBytes .}}{{end}}"></label>
-            <label>Total uploads<input name="max_uploads" data-kind="count" placeholder="unlimited" autocomplete="off"
-                    value="{{with .Global.MaxUploads}}{{.}}{{end}}"></label>
-            <label>Monthly size<input name="monthly_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"
-                    value="{{with .Global.MonthlyBytes}}{{humanBytes .}}{{end}}"></label>
-            <label>Monthly uploads<input name="monthly_uploads" data-kind="count" placeholder="unlimited"
-                    autocomplete="off" value="{{with .Global.MonthlyUploads}}{{.}}{{end}}"></label>
+            <label>Total size
+                <input name="max_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"
+                    value="{{with .Global.MaxBytes}}{{humanBytes .}}{{end}}">
+            </label>
+            <label>Total uploads
+                <input name="max_uploads" data-kind="count" placeholder="unlimited" autocomplete="off"
+                    value="{{with .Global.MaxUploads}}{{.}}{{end}}">
+            </label>
+            <label>Monthly size
+                <input name="monthly_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"
+                    value="{{with .Global.MonthlyBytes}}{{humanBytes .}}{{end}}">
+            </label>
+            <label>Monthly uploads
+                <input name="monthly_uploads" data-kind="count" placeholder="unlimited"
+                    autocomplete="off" value="{{with .Global.MonthlyUploads}}{{.}}{{end}}">
+            </label>
         </div>
         <div id="global-err" class="quota-err"></div>
         <div class="bar">
             <button type="submit">Save global quota</button>
             <span class="dim lim-hint">Applies to every token, unless it sets its own caps or is exempt.</span>
+        </div>
+    </form>
+</details>
+<details class="quota-details">
+    <summary>
+        <span>invite policy</span>
+        <span class="q-sum">{{if .InvPolicy.SchedEnabled}}scheduled: {{.InvPolicy.SchedCount}} every {{.InvPolicy.SchedInterval}}s ({{if eq .InvPolicy.SchedMode "random"}}random pool {{.InvPolicy.SchedPool}}{{else}}all{{end}}){{else}}scheduled: off{{end}} &#8212; {{if .InvPolicy.NewUserEnabled}}new user: +{{.InvPolicy.NewUserCount}} after {{.InvPolicy.NewUserDelay}}s{{else}}new user: off{{end}}</span>
+    </summary>
+    <form method="POST" action="/invite-policy" id="invitePolicyForm">
+        <input type="hidden" name="_csrf" value="{{.CSRF}}">
+        <p class="policy-heading">Scheduled Auto-Giveaway</p>
+        <div class="lim-grid policy-grid">
+            <label class="chk-label"><input type="checkbox" name="sched_on" {{if .InvPolicy.SchedEnabled}}checked{{end}}> Enable periodic giveaway</label>
+            <div class="policy-field">
+                <span>Mode</span>
+                <div class="csel" id="schedModeSel">
+                    <button type="button" class="csel-btn" id="schedModeBtn">{{if eq .InvPolicy.SchedMode "random"}}Random pool{{else}}All uploaders{{end}}</button>
+                    <div class="csel-opts" id="schedModeOpts">
+                        <div class="csel-opt {{if ne .InvPolicy.SchedMode "random"}}active{{end}}" data-value="all">All uploaders</div>
+                        <div class="csel-opt {{if eq .InvPolicy.SchedMode "random"}}active{{end}}" data-value="random">Random pool</div>
+                    </div>
+                </div>
+                <input type="hidden" name="sched_mode" id="schedModeSelect" value="{{if eq .InvPolicy.SchedMode "random"}}random{{else}}all{{end}}">
+            </div>
+            <label>Interval (seconds)
+                <input type="number" name="sched_interval" min="1" value="{{if .InvPolicy.SchedInterval}}{{.InvPolicy.SchedInterval}}{{else}}86400{{end}}" placeholder="86400 (24h)">
+            </label>
+            <label>Invites per cycle
+                <input type="number" name="sched_count" min="1" value="{{if .InvPolicy.SchedCount}}{{.InvPolicy.SchedCount}}{{else}}1{{end}}">
+            </label>
+            <label id="schedPoolGroup" {{if ne .InvPolicy.SchedMode "random"}}hidden{{end}}>Random pool size
+                <input type="number" name="sched_pool" min="1" value="{{if .InvPolicy.SchedPool}}{{.InvPolicy.SchedPool}}{{else}}5{{end}}">
+            </label>
+            <label>Max invites cap (0 = unlimited)
+                <input type="number" name="sched_max" min="0" value="{{.InvPolicy.SchedMax}}" placeholder="0">
+            </label>
+        </div>
+        <p class="policy-heading" style="margin-top: 0.8rem;">New Member Auto-Grant</p>
+        <div class="lim-grid policy-grid">
+            <label class="chk-label">
+                <input type="checkbox" name="newuser_on" {{if .InvPolicy.NewUserEnabled}}checked{{end}}> Grant invites to invited members after delay
+            </label>
+            <label>Delay (seconds)
+                <input type="number" name="newuser_delay" min="0" value="{{if .InvPolicy.NewUserDelay}}{{.InvPolicy.NewUserDelay}}{{else}}172800{{end}}" placeholder="172800 (48h)">
+            </label>
+            <label>Invites to grant
+                <input type="number" name="newuser_count" min="1" value="{{if .InvPolicy.NewUserCount}}{{.InvPolicy.NewUserCount}}{{else}}2{{end}}">
+            </label>
+            <label>Max invites cap (0 = unlimited)
+                <input type="number" name="newuser_max" min="0" value="{{.InvPolicy.NewUserMax}}" placeholder="0">
+            </label>
+        </div>
+        <div class="bar" style="margin-top: 0.6rem;">
+            <button type="submit">Save invite policy</button>
+            <span class="dim lim-hint">Automatically distributes invites periodically or to new members.</span>
         </div>
     </form>
 </details>
@@ -274,10 +337,29 @@
     <form method="POST" action="/tokens/giveaway">
         <input type="hidden" name="_csrf" value="{{.CSRF}}">
         <p class="dlg-title">Giveaway Invites</p>
-        <p class="dlg-desc">Grant additional invite credits to all users with the <code>upload</code> role.</p>
-        <label class="dlg-label">Invites per user
-            <input type="number" name="count" min="1" max="100" value="1" required>
-        </label>
+        <p class="dlg-desc">Grant additional invite credits to users with the <code>upload</code> role.</p>
+        <div class="lim-grid" style="margin-bottom: 0.8rem;">
+            <div class="dlg-label">
+                <span>Target</span>
+                <div class="csel" id="giveawayModeSel">
+                    <button type="button" class="csel-btn" id="giveawayModeBtn">All uploaders</button>
+                    <div class="csel-opts" id="giveawayModeOpts">
+                        <div class="csel-opt active" data-value="all">All uploaders</div>
+                        <div class="csel-opt" data-value="random">Random pool</div>
+                    </div>
+                </div>
+                <input type="hidden" name="mode" id="giveawayMode" value="all">
+            </div>
+            <label class="dlg-label">Invites per user
+                <input type="number" name="count" min="1" max="1000" value="1" required>
+            </label>
+            <label class="dlg-label" id="giveawayPoolGroup" hidden>Pool size (users)
+                <input type="number" name="pool" min="1" max="10000" value="5">
+            </label>
+            <label class="dlg-label">Max cap (0 = unlimited)
+                <input type="number" name="max_cap" min="0" max="10000" value="0" placeholder="0">
+            </label>
+        </div>
         <div class="bar bar-end">
             <button type="button" data-cancel>Cancel</button>
             <button type="submit">Grant Invites</button>
