@@ -581,8 +581,8 @@ func TestUserUploadsRoute(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `id="modalPrev"`) || !strings.Contains(rec.Body.String(), `id="modalNext"`) {
 		t.Errorf("expected body to contain modalPrev and modalNext navigation buttons")
 	}
-	if !strings.Contains(rec.Body.String(), `data-is-image="true"`) {
-		t.Errorf("expected body to contain data-is-image=\"true\" for image preview")
+	if !strings.Contains(rec.Body.String(), `data-is-media="true"`) {
+		t.Errorf("expected body to contain data-is-media=\"true\" for image preview")
 	}
 	// Verify that the displayed link text strips the extension
 	upURL := strings.TrimSpace(up.Body.String())

@@ -177,6 +177,21 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 		}
 		return false
 	},
+	"isVideo": func(name string) bool {
+		switch strings.ToLower(filepath.Ext(name)) {
+		case ".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv":
+			return true
+		}
+		return false
+	},
+	"isMedia": func(name string) bool {
+		switch strings.ToLower(filepath.Ext(name)) {
+		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".svg",
+			".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv":
+			return true
+		}
+		return false
+	},
 	"extClass": func(name string) string {
 		switch strings.ToLower(filepath.Ext(name)) {
 		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".svg":

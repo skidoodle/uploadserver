@@ -448,6 +448,21 @@ span.pager-btn[disabled] {
     transition: opacity 0.15s ease;
 }
 
+.lightbox-video {
+    max-width: 100%;
+    max-height: 65vh;
+    border-radius: 6px;
+    border: 1px solid var(--border-color-opts);
+    background: #000;
+    outline: none;
+}
+
+.lightbox-video.hidden,
+.lightbox-img.hidden,
+.hidden {
+    display: none !important;
+}
+
 .lightbox-footer {
     display: flex;
     justify-content: space-between;

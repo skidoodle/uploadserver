@@ -1,6 +1,7 @@
 (function () {
   const modal = document.getElementById('imgModal');
   const modalImg = document.getElementById('modalImg');
+  const modalVideo = document.getElementById('modalVideo');
   const modalTitle = document.getElementById('modalTitle');
   const modalDownload = document.getElementById('modalDownload');
   const modalClose = document.getElementById('modalClose');
@@ -15,30 +16,31 @@
   const tokenId = fileList.dataset.tokenId || '';
   const query = fileList.dataset.query || '';
 
-  let imageItems = [];
+  let mediaItems = [];
   let currentIndex = -1;
   let loadedPages = new Set([initialPage]);
   let lowestLoadedPage = initialPage;
   let highestLoadedPage = initialPage;
   let isFetching = false;
 
-  function extractImagesFromDocument(doc, pageNum) {
-    const previews = doc.querySelectorAll('.file-preview[data-is-image="true"]');
+  function extractMediaFromDocument(doc, pageNum) {
+    const previews = doc.querySelectorAll('.file-preview[data-is-media="true"]');
     const items = [];
     previews.forEach(p => {
       items.push({
         url: p.dataset.previewUrl,
         name: p.dataset.fileName,
+        type: p.dataset.mediaType || 'image',
         page: pageNum
       });
     });
     return items;
   }
 
-  imageItems = extractImagesFromDocument(document, initialPage);
+  mediaItems = extractMediaFromDocument(document, initialPage);
 
   function openModal(index) {
-    if (index < 0 || index >= imageItems.length) return;
+    if (index < 0 || index >= mediaItems.length) return;
     currentIndex = index;
     updateModalContent();
     document.body.style.overflow = 'hidden';
@@ -46,15 +48,39 @@
     maybePrefetch();
   }
 
+  function stopPlayback() {
+    if (modalVideo) {
+      modalVideo.pause();
+      modalVideo.src = '';
+      modalVideo.classList.add('hidden');
+    }
+  }
+
   function closeModal() {
     document.body.style.overflow = '';
+    stopPlayback();
     if (modal && modal.open) modal.close();
   }
 
   function updateModalContent() {
-    if (currentIndex < 0 || currentIndex >= imageItems.length) return;
-    const item = imageItems[currentIndex];
-    modalImg.src = item.url;
+    if (currentIndex < 0 || currentIndex >= mediaItems.length) return;
+    const item = mediaItems[currentIndex];
+
+    if (item.type === 'video') {
+      if (modalImg) modalImg.classList.add('hidden');
+      if (modalVideo) {
+        modalVideo.pause();
+        modalVideo.src = item.url;
+        modalVideo.classList.remove('hidden');
+      }
+    } else {
+      stopPlayback();
+      if (modalImg) {
+        modalImg.src = item.url;
+        modalImg.classList.remove('hidden');
+      }
+    }
+
     modalTitle.textContent = item.name;
     modalDownload.href = item.url;
 
@@ -63,14 +89,15 @@
       modalPrev.disabled = !canPrev;
     }
     if (modalNext) {
-      const canNext = currentIndex < imageItems.length - 1 || highestLoadedPage < totalPages;
+      const canNext = currentIndex < mediaItems.length - 1 || highestLoadedPage < totalPages;
       modalNext.disabled = !canNext;
     }
   }
 
   function navigate(direction) {
+    stopPlayback();
     if (direction === 'next') {
-      if (currentIndex < imageItems.length - 1) {
+      if (currentIndex < mediaItems.length - 1) {
         currentIndex++;
         updateModalContent();
         maybePrefetch();
@@ -90,7 +117,7 @@
 
   function maybePrefetch() {
     if (isFetching) return;
-    if (currentIndex >= imageItems.length - 3 && highestLoadedPage < totalPages && !loadedPages.has(highestLoadedPage + 1)) {
+    if (currentIndex >= mediaItems.length - 3 && highestLoadedPage < totalPages && !loadedPages.has(highestLoadedPage + 1)) {
       fetchPage(highestLoadedPage + 1, null);
     }
     if (currentIndex <= 2 && lowestLoadedPage > 1 && !loadedPages.has(lowestLoadedPage - 1)) {
@@ -110,17 +137,17 @@
       if (!resp.ok) throw new Error('Page fetch failed');
       const html = await resp.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
-      const newItems = extractImagesFromDocument(doc, pageNum);
+      const newItems = extractMediaFromDocument(doc, pageNum);
 
       loadedPages.add(pageNum);
       if (pageNum > highestLoadedPage) {
-        imageItems = imageItems.concat(newItems);
+        mediaItems = mediaItems.concat(newItems);
         highestLoadedPage = pageNum;
         if (navDirection === 'next' && newItems.length > 0) {
           currentIndex++;
         }
       } else if (pageNum < lowestLoadedPage) {
-        imageItems = newItems.concat(imageItems);
+        mediaItems = newItems.concat(mediaItems);
         lowestLoadedPage = pageNum;
         currentIndex += newItems.length;
         if (navDirection === 'prev' && newItems.length > 0) {
@@ -136,10 +163,10 @@
   }
 
   function bindPreviews() {
-    document.querySelectorAll('.file-preview[data-is-image="true"]').forEach((preview) => {
+    document.querySelectorAll('.file-preview[data-is-media="true"]').forEach((preview) => {
       preview.addEventListener('click', () => {
         const url = preview.dataset.previewUrl;
-        const idx = imageItems.findIndex(item => item.url === url);
+        const idx = mediaItems.findIndex(item => item.url === url);
         if (idx !== -1) {
           openModal(idx);
         }
@@ -158,7 +185,7 @@
       if (e.target === modal) closeModal();
     });
     modal.addEventListener('cancel', () => {
-      document.body.style.overflow = '';
+      closeModal();
     });
   }
 

@@ -47,9 +47,11 @@
 
 				{{ range .Uploads }}
 					<div class="file-row">
-						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name }}" data-file-name="{{ stripExt .Name }}" data-is-image="{{ if isImage .Name }}true{{ else }}false{{ end }}">
+						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name }}" data-file-name="{{ stripExt .Name }}" data-is-media="{{ if isMedia .Name }}true{{ else }}false{{ end }}" data-media-type="{{ if isVideo .Name }}video{{ else if isImage .Name }}image{{ else }}other{{ end }}">
 							{{ if isImage .Name }}
 								<img src="{{ fileURL $.BaseURL .Name }}" loading="lazy" alt="{{ stripExt .Name }}">
+							{{ else if isVideo .Name }}
+								<span class="file-icon-fallback">🎥</span>
 							{{ else }}
 								<span class="file-icon-fallback">{{ fileIcon .Name }}</span>
 							{{ end }}
@@ -115,6 +117,7 @@
 			<div class="lightbox-content">
 				<div class="lightbox-stage">
 					<img id="modalImg" class="lightbox-img" src="" alt="Preview">
+					<video id="modalVideo" class="lightbox-video hidden" controls playsinline></video>
 				</div>
 				<div class="lightbox-footer">
 					<div class="lightbox-info">
