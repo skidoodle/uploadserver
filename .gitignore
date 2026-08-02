@@ -7,3 +7,4 @@ tokens.db
 tokens.json
 .DS_Store
 *.swp
+.env

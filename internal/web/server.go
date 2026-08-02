@@ -63,6 +63,7 @@ func (s *server) routes() http.Handler {
 		mux.HandleFunc("POST /tokens/{id}/role", s.handleAdminSetRoleSSR)
 		mux.HandleFunc("POST /api/tokens/{id}/role", s.handleSetRole)
 		mux.HandleFunc("GET /_/uploads/{id}", s.handleUserUploads)
+		mux.HandleFunc("GET /_/users", s.handleAdminUsersPage)
 	}
 	return logging(secureHeaders(mux))
 }

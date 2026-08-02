@@ -248,7 +248,7 @@ func TestAdminCannotDeleteRoot(t *testing.T) {
 			rootID = r.ID
 		}
 	}
-	// Another admin tries to delete root → blocked (409).
+	// Another admin tries to delete root; blocked (409).
 	rec := adminReq(t, h, "DELETE", "/api/tokens/"+rootID, adminSecret, "")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("admin deleting root: status %d, want 409", rec.Code)
@@ -607,6 +607,54 @@ func TestUserUploadsRoute(t *testing.T) {
 	}
 	if len(jsonResp.Uploads) != 1 || !strings.HasSuffix(jsonResp.Uploads[0].Name, ".png") {
 		t.Errorf("unexpected uploads in JSON: %+v", jsonResp)
+	}
+}
+
+func TestAdminUsersRoute(t *testing.T) {
+	_, h, admin := newTestServer(t)
+	_, _ = createUploadToken(t, h, admin, "mytoken")
+
+	// 1. Unauthenticated request to /_/users -> redirect
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/_/users", nil))
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("unauthenticated GET /_/users status = %d, want 303/302", rec.Code)
+	}
+
+	// 2. Authenticated non-admin request to /_/users -> 403 Forbidden
+	_, nonAdminSecret := createUploadToken(t, h, admin, "usertok")
+	req := httptest.NewRequest("GET", "/_/users", nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: nonAdminSecret})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("non-admin GET /_/users status = %d, want 403", rec.Code)
+	}
+
+	// 3. Authenticated admin request to /_/users -> 200 OK with template
+	req = httptest.NewRequest("GET", "/_/users", nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: admin})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin GET /_/users status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "mytoken") {
+		t.Errorf("expected users page to list 'mytoken', got: %s", body)
+	}
+
+	// Test search query
+	searchReq := httptest.NewRequest("GET", "/_/users?q=mytoken", nil)
+	searchReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: admin})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, searchReq)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("search GET /_/users status = %d, want 200", rec.Code)
+	}
+	body = rec.Body.String()
+	if !strings.Contains(body, "mytoken") {
+		t.Errorf("expected search result to contain 'mytoken', got: %s", body)
 	}
 }
 

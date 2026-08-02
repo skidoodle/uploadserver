@@ -262,10 +262,6 @@
     color: var(--fg);
 }
 
-.back-link::before {
-    content: "\2190\00a0";
-}
-
 .pager-bar {
     display: flex;
     justify-content: space-between;

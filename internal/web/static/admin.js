@@ -109,7 +109,12 @@ class AdminDashboard {
           ctx.classList.add('open');
           const rect = trigger.getBoundingClientRect();
           menu.style.position = 'fixed';
-          menu.style.top = `${rect.bottom + 4}px`;
+          const menuHeight = menu.offsetHeight;
+          let top = rect.bottom + 4;
+          if (top + menuHeight > window.innerHeight - 10) {
+            top = rect.top - 4 - menuHeight;
+          }
+          menu.style.top = `${top}px`;
           const rightDist = window.innerWidth - rect.right;
           menu.style.right = `${Math.max(10, rightDist)}px`;
           menu.style.left = 'auto';

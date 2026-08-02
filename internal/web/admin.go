@@ -134,8 +134,14 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 			data.IsRoot = (rec.Role == internal.RoleRoot)
 			data.CurrentToken = &rec
 			if data.IsAdmin {
-				data.Tokens = s.store.List()
-				data.Count = len(data.Tokens)
+				all := s.store.List()
+				data.Tokens = all[:0:0]
+				for _, t := range all {
+					if t.Role == internal.RoleRoot || t.Role == internal.RoleAdmin {
+						data.Tokens = append(data.Tokens, t)
+					}
+				}
+				data.Count = len(all)
 				data.Global = s.store.GlobalLimits()
 			}
 		} else {
@@ -181,16 +187,18 @@ func (s *server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setAdminCookie(w, r, token)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
+// handleAdminLogout clears the admin cookie and redirects the user to the login page.
+// It validates the CSRF token and then clears the admin cookie before redirecting.
 func (s *server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	if !validateCSRF(r) {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		redirect(w, r)
 		return
 	}
 	clearCookie(w, r, adminCookieName)
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleAdminCreateTokenSSR mints a token and stashes its one-time secret in a
@@ -223,10 +231,11 @@ func (s *server) handleAdminCreateTokenSSR(w http.ResponseWriter, r *http.Reques
 	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: role, Secret: secret}); err == nil {
 		setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleAdminToggleTokenSSR toggles the disabled state of a token.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminToggleTokenSSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminCookie(w, r) {
 		return
@@ -242,10 +251,11 @@ func (s *server) handleAdminToggleTokenSSR(w http.ResponseWriter, r *http.Reques
 		redirectWithError(w, r, err.Error())
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleAdminSetRoleSSR sets the role of a token.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminSetRoleSSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRootCookie(w, r) {
 		return
@@ -261,10 +271,11 @@ func (s *server) handleAdminSetRoleSSR(w http.ResponseWriter, r *http.Request) {
 		redirectWithError(w, r, err.Error())
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleAdminDeleteTokenSSR deletes a token.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminCookie(w, r) {
 		return
@@ -278,11 +289,12 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 		redirectWithError(w, r, err.Error())
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleAdminSetLimitsSSR updates a token's quotas from the dashboard's limits
 // dialog, accepting human sizes (e.g. "5GB") and counts.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminSetLimitsSSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminCookie(w, r) {
 		return
@@ -306,10 +318,11 @@ func (s *server) handleAdminSetLimitsSSR(w http.ResponseWriter, r *http.Request)
 		invites, _ := strconv.Atoi(invitesStr)
 		_ = s.store.SetInvites(r.PathValue("id"), invites)
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleInviteTokenSSR allows an authorized token user (or admin) to create a token.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleInviteTokenSSR(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(adminCookieName)
 	if err != nil {
@@ -341,6 +354,7 @@ func (s *server) handleInviteTokenSSR(w http.ResponseWriter, r *http.Request) {
 
 // handleAdminSetGlobalLimitsSSR updates the server-wide default quota from the
 // dashboard's global-quota form.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminSetGlobalLimitsSSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminCookie(w, r) {
 		return
@@ -362,6 +376,8 @@ func (s *server) handleAdminSetGlobalLimitsSSR(w http.ResponseWriter, r *http.Re
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// handleListTokens lists all tokens and the global quota.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -371,6 +387,7 @@ func (s *server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateToken is the JSON API for minting a token. The request body is
 // optional (an empty body defaults to an upload token); root is never allowed.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -402,6 +419,7 @@ func (s *server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeleteToken deletes a token by its ID
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -414,6 +432,7 @@ func (s *server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetLabelSSR handles renaming a token via form submit.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetLabelSSR(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(adminCookieName)
 	if err != nil {
@@ -446,6 +465,7 @@ func (s *server) handleSetLabelSSR(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetLabel is the JSON API endpoint for renaming a token.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetLabel(w http.ResponseWriter, r *http.Request) {
 	rec, ok := s.authenticate(r)
 	if !ok {
@@ -472,6 +492,7 @@ func (s *server) handleSetLabel(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetRole is the JSON API endpoint for changing a token's role.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 	if !s.requireRoot(w, r) {
 		return
@@ -493,6 +514,7 @@ func (s *server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 
 // handleSetDisabled returns the enable/disable API handler for the given target
 // state, sharing the lookup and error mapping between both routes.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetDisabled(disabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.requireAdmin(w, r) {
@@ -508,6 +530,8 @@ func (s *server) handleSetDisabled(disabled bool) http.HandlerFunc {
 
 // handleSetLimits is the JSON API for setting a token's quotas. Caps are given
 // as raw byte/count integers and "bypass" toggles exemption from the global
+// rate limit.
+// It requires the admin cookie and a valid CSRF token.
 // default; an empty body clears every quota and the bypass flag.
 func (s *server) handleSetLimits(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
@@ -530,6 +554,7 @@ func (s *server) handleSetLimits(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleSetGlobalLimits is the JSON API for the server-wide default quota.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetGlobalLimits(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -576,6 +601,7 @@ func parseLimitsForm(r *http.Request) (internal.Limits, error) {
 
 // parseCount reads an upload-count cap, treating blank/0/"off"/"none" as
 // unlimited and tolerating thousands separators.
+// It returns an error if the value is not a valid count.
 func parseCount(s string) (int64, error) {
 	s = strings.ReplaceAll(strings.TrimSpace(s), ",", "")
 	switch strings.ToLower(s) {
@@ -590,6 +616,7 @@ func parseCount(s string) (int64, error) {
 }
 
 // writeStoreErr translates a token-store error into the closest HTTP status.
+// It returns a generic error message for unknown errors.
 func writeStoreErr(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, internal.ErrNotFound):
@@ -601,14 +628,32 @@ func writeStoreErr(w http.ResponseWriter, err error) {
 	}
 }
 
+// redirect stashes status and redirects back to Referer or default path.
+// It returns the redirect status code.
+func redirect(w http.ResponseWriter, r *http.Request) {
+	ref := r.Header.Get("Referer")
+	if ref != "" {
+		http.Redirect(w, r, ref, http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 // redirectWithError stashes a message in a flash cookie and bounces back to the
-// dashboard, which renders and clears it.
+// Referer or fallback.
+// It returns the redirect status code.
 func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
 	setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
+	ref := r.Header.Get("Referer")
+	if ref != "" {
+		http.Redirect(w, r, ref, http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handleUserUploads renders the per-token upload history page.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 	c, err := r.Cookie(adminCookieName)
 	if err != nil {
@@ -698,7 +743,104 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, uploadsTmpl, data)
 }
 
+// handleAdminUsersPage renders the paginated and searchable users list.
+// It requires the admin cookie and a valid CSRF token.
+func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return
+	}
+	if !internal.IsAdmin(userRec.Role) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	tokens := s.store.List()
+	totalAll := len(tokens)
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query != "" {
+		lower := strings.ToLower(query)
+		filtered := tokens[:0:0]
+		for _, t := range tokens {
+			if strings.Contains(strings.ToLower(t.Label), lower) || strings.Contains(strings.ToLower(t.ID), lower) || strings.Contains(strings.ToLower(t.Role), lower) {
+				filtered = append(filtered, t)
+			}
+		}
+		tokens = filtered
+	}
+
+	totalTokens := len(tokens)
+
+	const perPage = 50
+	totalPages := max((totalTokens+perPage-1)/perPage, 1)
+
+	page := 1
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p >= 1 {
+		page = p
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+
+	start := (page - 1) * perPage
+	end := min(start+perPage, totalTokens)
+	pageTokens := tokens[start:end]
+
+	csrf := generateCSRF()
+	setCSRFCookie(w, r, csrf)
+
+	totalUnfiltered := 0
+	if query != "" {
+		totalUnfiltered = totalAll
+	}
+
+	data := usersPageData{
+		LoggedIn:        true,
+		IsAdmin:         true,
+		IsRoot:          userRec.Role == internal.RoleRoot,
+		CurrentToken:    &userRec,
+		Tokens:          pageTokens,
+		Count:           totalTokens,
+		TotalUnfiltered: totalUnfiltered,
+		CSRF:            csrf,
+		Page:            page,
+		TotalPages:      totalPages,
+		PageStart:       start + 1,
+		PageEnd:         end,
+		Query:           query,
+		Global:          s.store.GlobalLimits(),
+	}
+
+	// Read flash cookies
+	if c, err := r.Cookie(flashSecretName); err == nil {
+		clearCookie(w, r, flashSecretName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			var secretData newTokenSecret
+			if json.Unmarshal(decoded, &secretData) == nil {
+				data.Secret = &secretData
+			}
+		}
+	}
+	if c, err := r.Cookie(flashErrorName); err == nil {
+		clearCookie(w, r, flashErrorName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			data.Error = string(decoded)
+		}
+	}
+
+	renderTemplate(w, usersTmpl, data)
+}
+
 // handleAPITokenUploads returns JSON upload history for token id.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAPITokenUploads(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
@@ -716,6 +858,7 @@ func (s *server) handleAPITokenUploads(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleGiveawaySSR handles the SSR request to add N invites to all upload tokens.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleGiveawaySSR(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminCookie(w, r) {
 		return
@@ -737,10 +880,11 @@ func (s *server) handleGiveawaySSR(w http.ResponseWriter, r *http.Request) {
 		redirectWithError(w, r, err.Error())
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleGiveawayAPI handles the JSON API request to add N invites to all upload tokens.
+// It requires the admin cookie and a valid CSRF token.
 func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return

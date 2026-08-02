@@ -14,7 +14,7 @@ import (
 // for a category of file types.
 type fileRule struct {
 	control     string
-	disposition string // non-empty → Content-Disposition: attachment
+	disposition string // non-empty implies Content-Disposition: attachment
 }
 
 var fileRules = map[string]fileRule{

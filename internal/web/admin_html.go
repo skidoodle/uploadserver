@@ -29,6 +29,9 @@ var dashboardHTML string
 //go:embed static/uploads.gohtml
 var uploadsHTML string
 
+//go:embed static/users.gohtml
+var usersHTML string
+
 //go:embed static/login.css static/login.js static/admin.css static/admin.js static/uploads.css static/uploads.js
 var staticFS embed.FS
 
@@ -62,6 +65,26 @@ type adminPageData struct {
 	CSRF         string
 }
 
+// usersPageData is the template data for the paginated users management page.
+type usersPageData struct {
+	LoggedIn        bool
+	IsAdmin         bool
+	IsRoot          bool
+	CurrentToken    *internal.TokenRecord
+	Tokens          []internal.TokenRecord
+	Count           int
+	TotalUnfiltered int
+	CSRF            string
+	Page            int
+	TotalPages      int
+	PageStart       int
+	PageEnd         int
+	Query           string
+	Global          internal.Limits
+	Error           string
+	Secret          *newTokenSecret
+}
+
 // newTokenSecret holds the one-time secret displayed after creating a token.
 type newTokenSecret struct {
 	ID     string
@@ -70,6 +93,7 @@ type newTokenSecret struct {
 }
 
 // uploadsTmpl is the parsed uploads template
+// It displays a paginated list of uploads for a given token.
 var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 	"fmtDate": func(t time.Time) string {
 		if t.IsZero() {
@@ -185,6 +209,50 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 	},
 }).Parse(uploadsHTML))
 
+// usersTmpl is the template for the users list page.
+// It displays a paginated list of users with their upload limits and invite counts.
+var usersTmpl = template.Must(template.New("users").Funcs(template.FuncMap{
+	"fmtDate": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.Format("Jan 2, 2006 3:04 PM")
+	},
+	"humanBytes": internal.FormatSize,
+	"comma":      internal.Comma,
+	"effective":  internal.EffectiveLimits,
+	"summary":    internal.SummarizeLimits,
+	"pageURL": func(page int, query string) template.URL {
+		s := fmt.Sprintf("?page=%d", page)
+		if query != "" {
+			s += "&q=" + url.QueryEscape(query)
+		}
+		return template.URL(s)
+	},
+	"add": func(a, b int) int { return a + b },
+	"sub": func(a, b int) int { return a - b },
+	"pageRange": func(cur, max int) []int {
+		if max <= 1 {
+			return []int{1}
+		}
+		delta := 2
+		seen := map[int]bool{}
+		var pages []int
+		add := func(p int) {
+			if p >= 1 && p <= max && !seen[p] {
+				seen[p] = true
+				pages = append(pages, p)
+			}
+		}
+		add(1)
+		for i := cur - delta; i <= cur+delta; i++ {
+			add(i)
+		}
+		add(max)
+		return pages
+	},
+}).Parse(usersHTML))
+
 // adminTmpl is the parsed admin template
 var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 	"fmtDate": func(t time.Time) string {
@@ -269,6 +337,11 @@ func isSelfClosing(tag string) bool {
 	return false
 }
 
+// writeString writes a string to w, discarding errors to satisfy errcheck.
+func writeString(w io.Writer, s string) {
+	_, _ = io.WriteString(w, s)
+}
+
 // renderNormalizedInline renders the given node as inline content, normalizing whitespace
 func renderNormalizedInline(w io.Writer, n *html.Node, isFirst, isLast bool) {
 	if n.Type == html.TextNode {
@@ -277,7 +350,7 @@ func renderNormalizedInline(w io.Writer, n *html.Node, isFirst, isLast bool) {
 			parentTag = n.Parent.Data
 		}
 		if parentTag == "pre" || parentTag == "textarea" {
-			io.WriteString(w, n.Data)
+			writeString(w, n.Data)
 			return
 		}
 
@@ -294,46 +367,47 @@ func renderNormalizedInline(w io.Writer, n *html.Node, isFirst, isLast bool) {
 		if isLast {
 			text = strings.TrimRight(text, " ")
 		}
-		io.WriteString(w, html.EscapeString(text))
+		writeString(w, html.EscapeString(text))
 		return
 	}
 
 	if n.Type == html.CommentNode {
-		io.WriteString(w, "<!--")
-		io.WriteString(w, n.Data)
-		io.WriteString(w, "-->")
+		writeString(w, "<!--")
+		writeString(w, n.Data)
+		writeString(w, "-->")
 		return
 	}
 
 	if n.Type == html.ElementNode {
-		io.WriteString(w, "<")
-		io.WriteString(w, n.Data)
+		writeString(w, "<")
+		writeString(w, n.Data)
 		for _, attr := range n.Attr {
-			io.WriteString(w, " ")
+			writeString(w, " ")
 			if attr.Namespace != "" {
-				io.WriteString(w, attr.Namespace)
-				io.WriteString(w, ":")
+				writeString(w, attr.Namespace)
+				writeString(w, ":")
 			}
-			io.WriteString(w, attr.Key)
-			io.WriteString(w, `="`)
-			io.WriteString(w, html.EscapeString(attr.Val))
-			io.WriteString(w, `"`)
+			writeString(w, attr.Key)
+			writeString(w, `="`)
+			writeString(w, html.EscapeString(attr.Val))
+			writeString(w, `"`)
 		}
 		if isSelfClosing(n.Data) {
-			io.WriteString(w, " />")
+			writeString(w, " />")
 			return
 		}
-		io.WriteString(w, ">")
+		writeString(w, ">")
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			renderNormalizedInline(w, c, false, false)
 		}
-		io.WriteString(w, "</")
-		io.WriteString(w, n.Data)
-		io.WriteString(w, ">")
+		writeString(w, "</")
+		writeString(w, n.Data)
+		writeString(w, ">")
 	}
 }
 
-// flushInline flushes the inline nodes to the output writer
+// flushInline writes the normalized inline content of the given nodes to the writer.
+// It removes leading and trailing empty text nodes and indents the content according to the depth.
 func flushInline(w io.Writer, nodes []*html.Node, depth int) {
 	if len(nodes) == 0 {
 		return
@@ -364,17 +438,19 @@ func flushInline(w io.Writer, nodes []*html.Node, depth int) {
 		isLast := (i == end)
 		renderNormalizedInline(w, nodes[i], isFirst, isLast)
 	}
-	io.WriteString(w, "\n")
+	writeString(w, "\n")
 }
 
 // writeIndent writes the indentation for the given depth
+// It indents the content by the specified depth, using 4 spaces per level.
 func writeIndent(w io.Writer, depth int) {
 	for range depth {
-		io.WriteString(w, "    ")
+		writeString(w, "    ")
 	}
 }
 
 // prettyPrint recursively prints the HTML node with indentation
+// It prints the node's tag and content, indenting children nodes as necessary.
 func prettyPrint(w io.Writer, n *html.Node, depth int) {
 	if n.Type == html.DocumentNode {
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -385,16 +461,16 @@ func prettyPrint(w io.Writer, n *html.Node, depth int) {
 
 	if n.Type == html.CommentNode {
 		writeIndent(w, depth)
-		io.WriteString(w, "<!--")
-		io.WriteString(w, n.Data)
-		io.WriteString(w, "-->\n")
+		writeString(w, "<!--")
+		writeString(w, n.Data)
+		writeString(w, "-->\n")
 		return
 	}
 
 	if n.Type == html.DoctypeNode {
-		io.WriteString(w, "<!doctype ")
-		io.WriteString(w, n.Data)
-		io.WriteString(w, ">\n")
+		writeString(w, "<!doctype ")
+		writeString(w, n.Data)
+		writeString(w, ">\n")
 		return
 	}
 
@@ -404,32 +480,32 @@ func prettyPrint(w io.Writer, n *html.Node, depth int) {
 			parentTag = n.Parent.Data
 		}
 		if parentTag == "script" || parentTag == "style" || parentTag == "pre" || parentTag == "textarea" {
-			io.WriteString(w, n.Data)
+			writeString(w, n.Data)
 			return
 		}
 		text := strings.TrimSpace(n.Data)
 		if text != "" {
-			io.WriteString(w, html.EscapeString(text))
+			writeString(w, html.EscapeString(text))
 		}
 		return
 	}
 
 	if n.Data == "script" || n.Data == "style" || n.Data == "pre" || n.Data == "textarea" {
 		writeIndent(w, depth)
-		io.WriteString(w, "<")
-		io.WriteString(w, n.Data)
+		writeString(w, "<")
+		writeString(w, n.Data)
 		for _, attr := range n.Attr {
-			io.WriteString(w, " ")
+			writeString(w, " ")
 			if attr.Namespace != "" {
-				io.WriteString(w, attr.Namespace)
-				io.WriteString(w, ":")
+				writeString(w, attr.Namespace)
+				writeString(w, ":")
 			}
-			io.WriteString(w, attr.Key)
-			io.WriteString(w, `="`)
-			io.WriteString(w, html.EscapeString(attr.Val))
-			io.WriteString(w, `"`)
+			writeString(w, attr.Key)
+			writeString(w, `="`)
+			writeString(w, html.EscapeString(attr.Val))
+			writeString(w, `"`)
 		}
-		io.WriteString(w, ">")
+		writeString(w, ">")
 
 		var textContent string
 		hasNewline := false
@@ -439,54 +515,54 @@ func prettyPrint(w io.Writer, n *html.Node, depth int) {
 		}
 
 		if hasNewline {
-			io.WriteString(w, "\n")
+			writeString(w, "\n")
 			if n.Data == "script" || n.Data == "style" {
 				lines := strings.SplitSeq(textContent, "\n")
 				for line := range lines {
 					trimmed := strings.TrimSpace(line)
 					if trimmed != "" {
 						writeIndent(w, depth+1)
-						io.WriteString(w, trimmed)
-						io.WriteString(w, "\n")
+						writeString(w, trimmed)
+						writeString(w, "\n")
 					}
 				}
 			} else {
-				io.WriteString(w, textContent)
+				writeString(w, textContent)
 			}
 			writeIndent(w, depth)
 		} else {
-			io.WriteString(w, textContent)
+			writeString(w, textContent)
 		}
 
-		io.WriteString(w, "</")
-		io.WriteString(w, n.Data)
-		io.WriteString(w, ">\n")
+		writeString(w, "</")
+		writeString(w, n.Data)
+		writeString(w, ">\n")
 		return
 	}
 
 	writeIndent(w, depth)
-	io.WriteString(w, "<")
-	io.WriteString(w, n.Data)
+	writeString(w, "<")
+	writeString(w, n.Data)
 	for _, attr := range n.Attr {
-		io.WriteString(w, " ")
+		writeString(w, " ")
 		if attr.Namespace != "" {
-			io.WriteString(w, attr.Namespace)
-			io.WriteString(w, ":")
+			writeString(w, attr.Namespace)
+			writeString(w, ":")
 		}
-		io.WriteString(w, attr.Key)
-		io.WriteString(w, `="`)
-		io.WriteString(w, html.EscapeString(attr.Val))
-		io.WriteString(w, `"`)
+		writeString(w, attr.Key)
+		writeString(w, `="`)
+		writeString(w, html.EscapeString(attr.Val))
+		writeString(w, `"`)
 	}
 
 	if isSelfClosing(n.Data) {
-		io.WriteString(w, " />\n")
+		writeString(w, " />\n")
 		return
 	}
-	io.WriteString(w, ">")
+	writeString(w, ">")
 
 	if shouldStructure(n) {
-		io.WriteString(w, "\n")
+		writeString(w, "\n")
 		var inlineAccum []*html.Node
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			if shouldStructure(c) || c.Type == html.CommentNode || isStandaloneTag(c) {
@@ -505,12 +581,13 @@ func prettyPrint(w io.Writer, n *html.Node, depth int) {
 		}
 	}
 
-	io.WriteString(w, "</")
-	io.WriteString(w, n.Data)
-	io.WriteString(w, ">\n")
+	writeString(w, "</")
+	writeString(w, n.Data)
+	writeString(w, ">\n")
 }
 
 // renderTemplate renders the given template with the given data, writing the result to the response writer
+// It sets the Content-Type header to text/html and executes the template, handling any errors that occur.
 func renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	var buf bytes.Buffer
@@ -523,11 +600,11 @@ func renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
 	doc, err := html.Parse(&buf)
 	if err != nil {
 		log.Printf("html parse error: %v", err)
-		w.Write(buf.Bytes())
+		_, _ = w.Write(buf.Bytes())
 		return
 	}
 
 	var prettyBuf bytes.Buffer
 	prettyPrint(&prettyBuf, doc, 0)
-	w.Write(prettyBuf.Bytes())
+	_, _ = w.Write(prettyBuf.Bytes())
 }

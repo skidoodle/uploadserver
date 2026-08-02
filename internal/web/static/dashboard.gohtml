@@ -12,7 +12,7 @@
 {{if .Error}}
 <p id="msg" class="err">{{.Error}}</p>
 {{else if .IsAdmin}}
-<p id="msg">{{.Count}} token(s)</p>
+<p id="msg">{{.Count}} token(s) &#8212; <a href="/_/users">Manage Users</a></p>
 {{end}}
 
 {{if .Secret}}
