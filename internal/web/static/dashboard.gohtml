@@ -88,7 +88,7 @@
     </thead>
     <tbody>
         {{range .Tokens}}
-        <tr{{if .Disabled}} class="off" {{end}}>
+        <tr class="{{if .Disabled}}off{{end}} {{if eq .ID $.CurrentToken.ID}}me{{end}}">
             <td data-label="ID"><code>{{.ID}}</code></td>
             <td data-label="Label">{{.Label}}</td>
             <td data-label="Role">{{.Role}}</td>

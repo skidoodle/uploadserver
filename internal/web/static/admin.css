@@ -516,6 +516,10 @@ legend {
     align-items: center;
 }
 
+table tbody tr.me {
+    background: rgba(30, 144, 255, 0.08) !important;
+}
+
 .bar-end {
     justify-content: flex-end;
 }
