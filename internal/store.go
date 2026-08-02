@@ -1,13 +1,14 @@
 package internal
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand/v2"
+	"math/big"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -507,9 +508,14 @@ func (s *TokenStore) AddInvitesToRandomUploaders(count, poolSize, maxCap int) (i
 			return nil
 		}
 		// Shuffle and pick
-		rand.Shuffle(len(eligible), func(i, j int) {
+		for i := len(eligible) - 1; i > 0; i-- {
+			nBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+			if err != nil {
+				return err
+			}
+			j := int(nBig.Int64())
 			eligible[i], eligible[j] = eligible[j], eligible[i]
-		})
+		}
 		n := min(poolSize, len(eligible))
 		for i := range n {
 			eligible[i].Invites += count

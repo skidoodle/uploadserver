@@ -89,7 +89,8 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	})
 
 	url := publicURL(cfg, r, name)
-	log.Printf("stored %s (%d bytes) by token %s (%s) from %s", name, n, rec.ID, rec.Label, clientIP(r))
+	log.Printf("stored %s (%d bytes) by token %s (%s) from %s",
+		internal.SanitizeLog(name), n, internal.SanitizeLog(rec.ID), internal.SanitizeLog(rec.Label), internal.SanitizeLog(clientIP(r)))
 
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		writeJSON(w, http.StatusOK, map[string]string{"url": url})
@@ -141,7 +142,7 @@ func savePart(cfg internal.Config, mr *multipart.Reader) (name string, n int64, 
 			_ = os.Remove(tmpName)
 			return "", 0, err
 		}
-		if err = os.Chmod(tmpName, 0o644); err != nil {
+		if err = os.Chmod(tmpName, 0o600); err != nil {
 			_ = os.Remove(tmpName)
 			return "", 0, err
 		}

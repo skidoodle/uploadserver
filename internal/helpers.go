@@ -2,6 +2,7 @@ package internal
 
 import (
 	"os"
+	"strings"
 )
 
 // Env returns the environment variable value or the default value.
@@ -22,4 +23,17 @@ func CheckWritable(dir string) error {
 	name := f.Name()
 	_ = f.Close()
 	return os.Remove(name)
+}
+
+// SanitizeLog removes newlines and control characters from strings to prevent log injection.
+func SanitizeLog(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' {
+			return ' '
+		}
+		if r < 32 && r != '\t' {
+			return -1
+		}
+		return r
+	}, s)
 }

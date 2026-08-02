@@ -20,7 +20,7 @@ func Run() (err error) {
 		return err
 	}
 
-	if err := os.MkdirAll(cfg.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(cfg.Dir, 0o750); err != nil {
 		return fmt.Errorf("create upload dir %q: %w", cfg.Dir, err)
 	}
 	if err := internal.CheckWritable(cfg.Dir); err != nil {

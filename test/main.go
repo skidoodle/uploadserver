@@ -9,7 +9,6 @@ import (
 	"image/color"
 	"image/jpeg"
 	"image/png"
-	mathrand "math/rand/v2"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -55,13 +54,14 @@ func main() {
 	hexLen := *lenFlag
 	width, height := *widthFlag, *heightFlag
 
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating directory %s: %v\n", outputDir, err)
+	cleanOutputDir := filepath.Clean(outputDir)
+	if err := os.MkdirAll(cleanOutputDir, 0o750); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating directory %s: %v\n", cleanOutputDir, err)
 		os.Exit(1)
 	}
 
 	start := time.Now()
-	fmt.Printf("Generating %d test image(s) in %q (hex length: %d)...\n", count, outputDir, hexLen)
+	fmt.Printf("Generating %d test image(s) in %q (hex length: %d)...\n", count, cleanOutputDir, hexLen)
 
 	numWorkers := min(count, 16)
 
@@ -75,10 +75,12 @@ func main() {
 			for range jobs {
 				img := image.NewRGBA(image.Rect(0, 0, width, height))
 
+				var rBuf [4]byte
+				_, _ = rand.Read(rBuf[:])
 				fillColor := color.RGBA{
-					R: uint8(mathrand.IntN(256)),
-					G: uint8(mathrand.IntN(256)),
-					B: uint8(mathrand.IntN(256)),
+					R: rBuf[0],
+					G: rBuf[1],
+					B: rBuf[2],
 					A: 255,
 				}
 
@@ -90,11 +92,11 @@ func main() {
 
 				ext := strings.ToLower(strings.TrimPrefix(*extFlag, "."))
 				if ext == "random" || ext == "" {
-					ext = commonExts[mathrand.IntN(len(commonExts))]
+					ext = commonExts[int(rBuf[3])%len(commonExts)]
 				}
 
 				baseName := randomHex(hexLen)
-				fileName := filepath.Join(outputDir, baseName+"."+ext)
+				fileName := filepath.Join(cleanOutputDir, filepath.Base(baseName+"."+ext))
 
 				file, err := os.Create(fileName)
 				if err != nil {

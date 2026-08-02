@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"uploadserver/internal"
@@ -294,7 +295,7 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	ref := r.Header.Get("Referer")
-	if ref != "" && !strings.HasSuffix(ref, "/"+id) {
+	if isSafeRedirectTarget(ref, r.Host) && !strings.HasSuffix(ref, "/"+id) {
 		http.Redirect(w, r, ref, http.StatusSeeOther)
 		return
 	}
@@ -637,11 +638,32 @@ func writeStoreErr(w http.ResponseWriter, err error) {
 	}
 }
 
+// isSafeRedirectTarget checks whether a redirect URL is safe (same origin or local relative path).
+func isSafeRedirectTarget(target string, reqHost string) bool {
+	if target == "" {
+		return false
+	}
+	if strings.ContainsAny(target, "\r\n\t") {
+		return false
+	}
+	if strings.HasPrefix(target, "/") {
+		if strings.HasPrefix(target, "//") || strings.HasPrefix(target, "/\\") {
+			return false
+		}
+		return true
+	}
+	u, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	return u.Host != "" && strings.EqualFold(u.Host, reqHost)
+}
+
 // redirect stashes status and redirects back to Referer or default path.
 // It returns the redirect status code.
 func redirect(w http.ResponseWriter, r *http.Request) {
 	ref := r.Header.Get("Referer")
-	if ref != "" {
+	if isSafeRedirectTarget(ref, r.Host) {
 		http.Redirect(w, r, ref, http.StatusSeeOther)
 		return
 	}
@@ -658,7 +680,7 @@ func redirect(w http.ResponseWriter, r *http.Request) {
 func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
 	setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
 	ref := r.Header.Get("Referer")
-	if ref != "" {
+	if isSafeRedirectTarget(ref, r.Host) {
 		http.Redirect(w, r, ref, http.StatusSeeOther)
 		return
 	}
@@ -975,7 +997,7 @@ func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
 		Pool   int    `json:"pool"`
 		MaxCap int    `json:"max_cap"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Count <= 0 {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil || req.Count <= 0 {
 		httpError(w, http.StatusBadRequest, "count must be a positive integer")
 		return
 	}
@@ -1049,7 +1071,7 @@ func (s *server) handleSetInvitePolicyAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var pol internal.InvitePolicy
-	if err := json.NewDecoder(r.Body).Decode(&pol); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&pol); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid json")
 		return
 	}

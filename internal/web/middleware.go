@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"time"
+	"uploadserver/internal"
 )
 
 // secureHeaders applies conservative response headers to every request.
@@ -33,6 +34,6 @@ func logging(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.status, time.Since(start).Round(time.Millisecond))
+		log.Printf("%s %s %d %s", internal.SanitizeLog(r.Method), internal.SanitizeLog(r.URL.Path), rec.status, time.Since(start).Round(time.Millisecond))
 	})
 }

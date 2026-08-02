@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 	"uploadserver/internal"
 	"uploadserver/internal/web"
 )
@@ -35,11 +38,21 @@ func main() {
 		} else if after, ok := strings.CutPrefix(addr, "0.0.0.0:"); ok {
 			addr = "localhost:" + after
 		}
-		resp, err := http.Get("http://" + addr + "/healthz")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/healthz", nil)
+		if err != nil {
+			log.Fatalf("healthcheck request creation failed: %v", err)
+		}
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
 		if err != nil {
 			log.Fatalf("healthcheck query failed: %v", err)
 		}
-		defer func() { _ = resp.Body.Close() }()
+		defer func() {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}()
 		if resp.StatusCode != http.StatusOK {
 			log.Fatalf("healthcheck failed with status %d", resp.StatusCode)
 		}
@@ -49,7 +62,7 @@ func main() {
 			log.Fatal(err)
 		}
 	default:
-		log.Printf("unknown command %q", os.Args[1])
+		log.Printf("unknown command %q", internal.SanitizeLog(os.Args[1]))
 		fmt.Println(internal.CLIUsage)
 		os.Exit(1)
 	}

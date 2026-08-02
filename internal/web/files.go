@@ -130,18 +130,39 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 // name.* — safe because upload names are random hex, so at most one file
 // matches any given base name.
 func (s *server) resolveUpload(name string) (disk, ext string, ok bool) {
-	base := filepath.Join(s.cfg.Dir, filepath.FromSlash(name))
-	if _, err := os.Stat(base); err == nil {
-		return base, strings.ToLower(filepath.Ext(base)), true
+	absDir, err := filepath.Abs(s.cfg.Dir)
+	if err != nil {
+		return "", "", false
+	}
+	base := filepath.Join(absDir, filepath.FromSlash(name))
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return "", "", false
+	}
+	rel, err := filepath.Rel(absDir, absBase)
+	if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+		return "", "", false
+	}
+
+	if _, err := os.Stat(absBase); err == nil {
+		return absBase, strings.ToLower(filepath.Ext(absBase)), true
 	}
 	if !s.cfg.StripExtension {
 		return "", "", false
 	}
-	matches, _ := filepath.Glob(base + ".*")
+	matches, _ := filepath.Glob(absBase + ".*")
 	if len(matches) == 0 {
 		return "", "", false
 	}
-	return matches[0], strings.ToLower(filepath.Ext(matches[0])), true
+	matchAbs, err := filepath.Abs(matches[0])
+	if err != nil {
+		return "", "", false
+	}
+	matchRel, err := filepath.Rel(absDir, matchAbs)
+	if err != nil || strings.HasPrefix(matchRel, "..") {
+		return "", "", false
+	}
+	return matchAbs, strings.ToLower(filepath.Ext(matchAbs)), true
 }
 
 // gzipResponseWriter routes writes through a gzip encoder, strips
