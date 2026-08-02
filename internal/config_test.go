@@ -7,14 +7,14 @@ import (
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
-	// Clear relevant env vars to test defaults
+	// Clear relevant env vars to test default fallback logic
 	envVars := []string{
 		"LISTEN_ADDR", "UPLOAD_DIR", "BASE_URL", "UPLOAD_FIELD",
 		"TOKEN_STORE", "ENABLE_ADMIN", "STRIP_EXTENSION", "SERVE_FILES",
 		"RANDOM_NAME_LENGTH", "MAX_UPLOAD_BYTES",
 	}
 	for _, v := range envVars {
-		os.Unsetenv(v)
+		_ = os.Unsetenv(v)
 	}
 
 	cfg, err := LoadConfig()
@@ -49,25 +49,14 @@ func TestLoadConfigDefaults(t *testing.T) {
 }
 
 func TestLoadConfigCustomEnv(t *testing.T) {
-	os.Setenv("LISTEN_ADDR", ":9090")
-	os.Setenv("UPLOAD_DIR", "/tmp/uploads")
-	os.Setenv("BASE_URL", "https://cdn.example.com/")
-	os.Setenv("RANDOM_NAME_LENGTH", "16")
-	os.Setenv("MAX_UPLOAD_BYTES", strconv.FormatInt(100<<20, 10))
-	os.Setenv("ENABLE_ADMIN", "false")
-	os.Setenv("STRIP_EXTENSION", "true")
-	os.Setenv("SERVE_FILES", "true")
-
-	defer func() {
-		os.Unsetenv("LISTEN_ADDR")
-		os.Unsetenv("UPLOAD_DIR")
-		os.Unsetenv("BASE_URL")
-		os.Unsetenv("RANDOM_NAME_LENGTH")
-		os.Unsetenv("MAX_UPLOAD_BYTES")
-		os.Unsetenv("ENABLE_ADMIN")
-		os.Unsetenv("STRIP_EXTENSION")
-		os.Unsetenv("SERVE_FILES")
-	}()
+	t.Setenv("LISTEN_ADDR", ":9090")
+	t.Setenv("UPLOAD_DIR", "/tmp/uploads")
+	t.Setenv("BASE_URL", "https://cdn.example.com/")
+	t.Setenv("RANDOM_NAME_LENGTH", "16")
+	t.Setenv("MAX_UPLOAD_BYTES", strconv.FormatInt(100<<20, 10))
+	t.Setenv("ENABLE_ADMIN", "false")
+	t.Setenv("STRIP_EXTENSION", "true")
+	t.Setenv("SERVE_FILES", "true")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -101,8 +90,7 @@ func TestLoadConfigCustomEnv(t *testing.T) {
 }
 
 func TestLoadConfigInvalidMaxBytes(t *testing.T) {
-	os.Setenv("MAX_UPLOAD_BYTES", "invalid_number")
-	defer os.Unsetenv("MAX_UPLOAD_BYTES")
+	t.Setenv("MAX_UPLOAD_BYTES", "invalid_number")
 
 	if _, err := LoadConfig(); err == nil {
 		t.Errorf("LoadConfig() expected error for invalid MAX_UPLOAD_BYTES")

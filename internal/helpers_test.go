@@ -40,15 +40,14 @@ func TestSanitizeLog(t *testing.T) {
 }
 
 func TestEnv(t *testing.T) {
-	key := "TEST_UPLOADSERVER_ENV_VAR"
-	os.Unsetenv(key)
+	key := "TEST_UPLOADSERVER_ENV_VAR_UNSET"
+	_ = os.Unsetenv(key)
 
 	if got := Env(key, "default_val"); got != "default_val" {
 		t.Errorf("Env() for unset var = %q; want %q", got, "default_val")
 	}
 
-	os.Setenv(key, "custom_val")
-	defer os.Unsetenv(key)
+	t.Setenv(key, "custom_val")
 
 	if got := Env(key, "default_val"); got != "custom_val" {
 		t.Errorf("Env() for set var = %q; want %q", got, "custom_val")

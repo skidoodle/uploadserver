@@ -13,7 +13,7 @@ func TestInviteSystem_CreditsAndNoInvites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	uploaderID, _, err := store.Add("user1", RoleUpload)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestInviteSystem_GiveawaysAndCapping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	u1, _, _ := store.Add("user1", RoleUpload)
 	u2, _, _ := store.Add("user2", RoleUpload)
@@ -97,7 +97,7 @@ func TestInviteSystem_PendingGrantsAndScheduler(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Enable new user policy
 	pol := InvitePolicy{

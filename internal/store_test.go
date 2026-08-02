@@ -13,7 +13,7 @@ func TestStore_Bootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Initial bootstrap creates root
 	secret, created, err := store.Bootstrap()
@@ -43,7 +43,7 @@ func TestStore_AddAndAuthenticate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	t.Run("Valid Add and Authenticate", func(t *testing.T) {
 		id, secret, err := store.Add("uploader", RoleUpload)
@@ -92,7 +92,7 @@ func TestStore_RootProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	_, _, _ = store.Bootstrap()
 	list := store.List()
@@ -132,7 +132,7 @@ func TestStore_LastAdminProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	adminID, _, err := store.Add("admin1", RoleAdmin)
 	if err != nil {
@@ -167,8 +167,8 @@ func TestStore_LastAdminProtection(t *testing.T) {
 			t.Errorf("SetDisabled allowed when admin2 exists, got %v", err)
 		}
 
-		if err := store.Remove(admin2ID); err == nil {
-			// admin1 is disabled, so admin2 is the last ENABLED admin
+		if err := store.Remove(admin2ID); !errors.Is(err, ErrLastAdmin) {
+			t.Errorf("Remove(admin2ID) should be blocked as last enabled admin, got %v; want ErrLastAdmin", err)
 		}
 	})
 }
@@ -179,7 +179,7 @@ func TestStore_UploadEntriesAndImport(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	id, _, _ := store.Add("user1", RoleUpload)
 
@@ -218,7 +218,7 @@ func TestStore_HashStripping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("OpenStore error: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	id, _, _ := store.Add("user1", RoleUpload)
 
