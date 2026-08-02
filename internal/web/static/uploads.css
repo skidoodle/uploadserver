@@ -1,7 +1,9 @@
 .breadcrumb {
+    display: flex;
+    align-items: center;
     font-size: 0.85rem;
     color: var(--fg-muted);
-    margin: 0 0 0.25rem;
+    margin: 0.2rem 0 0.6rem;
 }
 
 .breadcrumb a {
@@ -15,8 +17,17 @@
 }
 
 .breadcrumb .sep {
-    margin: 0 0.3rem;
+    margin: 0 0.35rem;
+    color: var(--fg-muted);
     opacity: 0.5;
+    user-select: none;
+    font-size: 0.85rem;
+}
+
+.breadcrumb span:last-child {
+    color: var(--fg);
+    font-size: 0.85rem;
+    font-weight: 400;
 }
 
 .toolbar-bar {

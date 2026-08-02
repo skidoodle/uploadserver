@@ -177,6 +177,22 @@ func getRecord(tx *bolt.Tx, id string) (*TokenRecord, error) {
 	return &r, nil
 }
 
+// GetRecord fetches a token record by ID with hashes cleared.
+func (s *TokenStore) GetRecord(id string) (TokenRecord, bool) {
+	var rec TokenRecord
+	var found bool
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		r, err := getRecord(tx, id)
+		if err == nil {
+			rec = *r
+			rec.Hash = ""
+			found = true
+		}
+		return nil
+	})
+	return rec, found
+}
+
 // readGlobal returns the server-wide default quota, or the zero (unlimited) value.
 func readGlobal(tx *bolt.Tx) Limits {
 	v := tx.Bucket(metaBucket).Get(globalKey)

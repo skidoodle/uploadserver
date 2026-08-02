@@ -31,6 +31,7 @@ class AdminDashboard {
     this.#initLimitsDialog();
     this.#initGiveawayDialog();
     this.#initInvitePolicyForm();
+    this.#initSearchBox();
     this.#initQuotaForm(
       document.getElementById("globalForm"),
       document.getElementById("global-err"),
@@ -482,6 +483,27 @@ class AdminDashboard {
     modeSelect.addEventListener("change", () => {
       poolGroup.hidden = modeSelect.value !== "random";
     });
+  }
+
+  #initSearchBox() {
+    const searchForm = document.getElementById("searchForm");
+    const searchInput = document.getElementById("searchInput");
+    const searchClear = document.getElementById("searchClear");
+
+    if (searchClear) {
+      searchClear.addEventListener("click", () => {
+        window.location.href = window.location.pathname;
+      });
+    }
+
+    if (searchForm && searchInput) {
+      searchForm.addEventListener("submit", (e) => {
+        if (!searchInput.value.trim()) {
+          e.preventDefault();
+          window.location.href = window.location.pathname;
+        }
+      });
+    }
   }
 }
 

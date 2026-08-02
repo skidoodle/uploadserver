@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <link rel="icon" href="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">
+    <title>uploadserver · user {{.TargetToken.ID}}</title>
+    <link rel="stylesheet" href="/_/admin.css">
+</head>
+<body>
+    <h1>uploadserver</h1>
+
+    {{if .Error}}
+    <p id="msg" class="err">{{.Error}}</p>
+    {{end}}
+
+    <nav class="breadcrumb">
+        <a href="/">dashboard</a>
+        <span class="sep">›</span>
+        <a href="/_/users">user</a>
+        <span class="sep">›</span>
+        <span>{{.TargetToken.ID}}</span>
+    </nav>
+
+    <fieldset>
+        <legend>user profile</legend>
+        <table class="profile-table">
+            <tbody>
+                <tr>
+                    <th>ID</th>
+                    <td><code>{{.TargetToken.ID}}</code></td>
+                </tr>
+                <tr>
+                    <th>Label</th>
+                    <td><strong>{{.TargetToken.Label}}</strong></td>
+                </tr>
+                <tr>
+                    <th>Role</th>
+                    <td>{{.TargetToken.Role}}</td>
+                </tr>
+                <tr>
+                    <th>Status</th>
+                    <td>{{if .TargetToken.Disabled}}<span class="err">disabled</span>{{else}}active{{end}}</td>
+                </tr>
+                <tr>
+                    <th>Created</th>
+                    <td>{{fmtDate .TargetToken.CreatedAt}}</td>
+                </tr>
+                <tr>
+                    <th>Last used</th>
+                    <td>{{with fmtDate .TargetToken.LastUsed}}{{.}}{{else}}<span class="dim">never</span>{{end}}</td>
+                </tr>
+                <tr>
+                    <th>Usage</th>
+                    <td>{{comma .TargetToken.Usage.Uploads}} upload{{if ne .TargetToken.Usage.Uploads 1}}s{{end}} <span class="dim">({{humanBytes .TargetToken.Usage.Bytes}})</span>{{if or .TargetToken.Usage.MonthUploadsNow .TargetToken.Usage.MonthBytesNow}} <span class="dim">· {{comma .TargetToken.Usage.MonthUploadsNow}} this month ({{humanBytes .TargetToken.Usage.MonthBytesNow}})</span>{{end}}</td>
+                </tr>
+                <tr>
+                    <th>Quota</th>
+                    <td>{{$sum := summary (effective .TargetToken.Limits $.Global .TargetToken.BypassesGlobal)}}{{if $sum}}{{$sum}}{{else}}<span class="dim">unlimited</span>{{end}}</td>
+                </tr>
+                <tr>
+                    <th>Invites</th>
+                    <td>{{if gt .TargetToken.Invites 0}}{{.TargetToken.Invites}} invite{{if ne .TargetToken.Invites 1}}s{{end}} remaining{{else}}<span class="dim">0 remaining</span>{{end}}</td>
+                </tr>
+            </tbody>
+        </table>
+        <div class="profile-actions">
+            <a href="/_/uploads/{{.TargetToken.ID}}" class="act-btn">View Files</a>
+            <button type="button" class="act" data-rename-id="{{.TargetToken.ID}}" data-label="{{.TargetToken.Label}}">Rename Label</button>
+            <button type="button" class="act" data-limit-id="{{.TargetToken.ID}}"
+                data-max-bytes="{{with .TargetToken.Limits.MaxBytes}}{{humanBytes .}}{{end}}"
+                data-max-uploads="{{with .TargetToken.Limits.MaxUploads}}{{.}}{{end}}"
+                data-monthly-bytes="{{with .TargetToken.Limits.MonthlyBytes}}{{humanBytes .}}{{end}}"
+                data-monthly-uploads="{{with .TargetToken.Limits.MonthlyUploads}}{{.}}{{end}}"
+                data-invites="{{with .TargetToken.Invites}}{{.}}{{end}}"
+                data-bypass="{{if .TargetToken.Bypass}}1{{end}}">Limits & Invites</button>
+            {{if ne .TargetToken.Role "root"}}
+            <form method="POST" action="/_/tokens/{{.TargetToken.ID}}/toggle" class="form-inline">
+                <input type="hidden" name="_csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="disable" value="{{if .TargetToken.Disabled}}false{{else}}true{{end}}">
+                <button type="submit" class="act">{{if .TargetToken.Disabled}}Enable{{else}}Disable{{end}}</button>
+            </form>
+            {{if $.IsRoot}}
+            {{if eq .TargetToken.Role "admin"}}
+            <button type="button" class="act" data-role-id="{{.TargetToken.ID}}" data-role-target="upload" data-role-label="Demote to Uploader">Demote to Uploader</button>
+            {{else if eq .TargetToken.Role "upload"}}
+            <button type="button" class="act" data-role-id="{{.TargetToken.ID}}" data-role-target="admin" data-role-label="Promote to Admin">Promote to Admin</button>
+            {{end}}
+            {{end}}
+            <button type="button" class="act danger" data-delete-id="{{.TargetToken.ID}}">Delete Token</button>
+            {{end}}
+        </div>
+    </fieldset>
+
+    <dialog id="dlg">
+        <form method="POST" id="dlgForm" action="">
+            <input type="hidden" name="_csrf" value="{{.CSRF}}">
+            <p id="dlgmsg"></p>
+            <div class="bar bar-end">
+                <button type="button" data-cancel>Cancel</button>
+                <button type="submit" class="danger">Delete</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="roledlg">
+        <form method="POST" id="roleForm" action="">
+            <input type="hidden" name="_csrf" value="{{.CSRF}}">
+            <input type="hidden" name="role" id="roleTargetInput" value="">
+            <p id="roledlgmsg"></p>
+            <div class="bar bar-end">
+                <button type="button" data-cancel>Cancel</button>
+                <button type="submit">Confirm</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="limdlg">
+        <form method="POST" id="limForm" action="">
+            <input type="hidden" name="_csrf" value="{{.CSRF}}">
+            <p>Quotas & Invites for <code id="limTarget"></code></p>
+            <div class="lim-grid">
+                <label>Total size<input name="max_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"></label>
+                <label>Total uploads<input name="max_uploads" data-kind="count" placeholder="unlimited" autocomplete="off"></label>
+                <label>Monthly size<input name="monthly_bytes" data-kind="size" placeholder="unlimited" autocomplete="off"></label>
+                <label>Monthly uploads<input name="monthly_uploads" data-kind="count" placeholder="unlimited" autocomplete="off"></label>
+                <label>Invite quota<input name="invites" type="number" min="0" placeholder="0" autocomplete="off"></label>
+            </div>
+            <label class="lim-check"><input type="checkbox" name="bypass" id="limBypass" value="true"> Exempt this token from all quotas</label>
+            <p class="dim lim-hint">Blank or 0 means unlimited/none. Personal caps override global defaults.</p>
+            <div id="lim-err" class="quota-err"></div>
+            <div class="bar bar-end">
+                <button type="button" data-cancel>Cancel</button>
+                <button type="submit">Save</button>
+            </div>
+        </form>
+    </dialog>
+
+    <dialog id="renamedlg">
+        <form method="POST" id="renameForm" action="">
+            <input type="hidden" name="_csrf" value="{{.CSRF}}">
+            <p class="dlg-title">Rename token <code id="renameTarget"></code></p>
+            <label class="dlg-label">New Label
+                <input name="label" id="renameInput" required
+                    pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
+                    title="1-9 alphanumeric characters (can contain _ or - inside).">
+            </label>
+            <div id="rename-err" class="label-err" hidden></div>
+            <div class="bar bar-end">
+                <button type="button" data-cancel>Cancel</button>
+                <button type="submit">Save</button>
+            </div>
+        </form>
+    </dialog>
+
+    <script src="/_/admin.js"></script>
+</body>
+</html>

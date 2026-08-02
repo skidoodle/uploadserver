@@ -1071,3 +1071,29 @@ func TestInvitePolicyAndGiveaways(t *testing.T) {
 		t.Errorf("expected new user to receive 3 invites from auto-grant, got %d", found.Invites)
 	}
 }
+
+func TestAdminUserProfilePage(t *testing.T) {
+	_, h, adminSecret := newTestServer(t)
+	id, _ := createUploadToken(t, h, adminSecret, "profuser")
+
+	// 1. Unauthenticated -> redirect
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", "/_/user/"+id, nil))
+	if rec.Code != http.StatusSeeOther {
+		t.Errorf("unauth GET /_/user/%s status = %d, want 303", id, rec.Code)
+	}
+
+	// 2. Authenticated Admin -> 200 OK with profile view
+	req := httptest.NewRequest("GET", "/_/user/"+id, nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin GET /_/user/%s status = %d, want 200", id, rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "profuser") || !strings.Contains(body, "user profile") {
+		t.Errorf("expected user profile body to contain 'profuser' and 'user profile', got: %s", body)
+	}
+}

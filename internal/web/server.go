@@ -67,6 +67,7 @@ func (s *server) routes() http.Handler {
 		mux.HandleFunc("POST /_/api/invite-policy", s.handleSetInvitePolicyAPI)
 		mux.HandleFunc("GET /_/uploads/{id}", s.handleUserUploads)
 		mux.HandleFunc("GET /_/users", s.handleAdminUsersPage)
+		mux.HandleFunc("GET /_/user/{id}", s.handleAdminUserProfilePage)
 	}
 	return logging(secureHeaders(mux))
 }

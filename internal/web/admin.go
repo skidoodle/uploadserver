@@ -288,11 +288,17 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := s.store.Remove(r.PathValue("id")); err != nil {
+	id := r.PathValue("id")
+	if err := s.store.Remove(id); err != nil {
 		redirectWithError(w, r, err.Error())
 		return
 	}
-	redirect(w, r)
+	ref := r.Header.Get("Referer")
+	if ref != "" && !strings.HasSuffix(ref, "/"+id) {
+		http.Redirect(w, r, ref, http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/_/users", http.StatusSeeOther)
 }
 
 // handleAdminSetLimitsSSR updates a token's quotas from the dashboard's limits
@@ -352,7 +358,7 @@ func (s *server) handleInviteTokenSSR(w http.ResponseWriter, r *http.Request) {
 	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: internal.RoleUpload, Secret: secret}); err == nil {
 		setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleAdminSetGlobalLimitsSSR updates the server-wide default quota from the
@@ -464,7 +470,7 @@ func (s *server) handleSetLabelSSR(w http.ResponseWriter, r *http.Request) {
 		redirectWithError(w, r, err.Error())
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	redirect(w, r)
 }
 
 // handleSetLabel is the JSON API endpoint for renaming a token.
@@ -639,6 +645,10 @@ func redirect(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, ref, http.StatusSeeOther)
 		return
 	}
+	if id := r.PathValue("id"); id != "" {
+		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther)
+		return
+	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -650,6 +660,10 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
 	ref := r.Header.Get("Referer")
 	if ref != "" {
 		http.Redirect(w, r, ref, http.StatusSeeOther)
+		return
+	}
+	if id := r.PathValue("id"); id != "" {
+		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther)
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -841,6 +855,55 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderTemplate(w, usersTmpl, data)
+}
+
+// handleAdminUserProfilePage renders the user profile card view for a specific token ID.
+// It requires the admin cookie and a valid CSRF token.
+func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(adminCookieName)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	userRec, ok := s.store.Authenticate(c.Value)
+	if !ok {
+		clearCookie(w, r, adminCookieName)
+		redirectWithError(w, r, "session expired")
+		return
+	}
+	if !internal.IsAdmin(userRec.Role) {
+		httpError(w, http.StatusForbidden, "admin token required")
+		return
+	}
+
+	targetID := r.PathValue("id")
+	targetRec, found := s.store.GetRecord(targetID)
+	if !found {
+		redirectWithError(w, r, "user not found")
+		return
+	}
+
+	csrf := generateCSRF()
+	setCSRFCookie(w, r, csrf)
+
+	data := userProfilePageData{
+		LoggedIn:     true,
+		IsAdmin:      true,
+		IsRoot:       userRec.Role == internal.RoleRoot,
+		CurrentToken: &userRec,
+		TargetToken:  targetRec,
+		Global:       s.store.GlobalLimits(),
+		CSRF:         csrf,
+	}
+
+	if c, err := r.Cookie(flashErrorName); err == nil {
+		clearCookie(w, r, flashErrorName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			data.Error = string(decoded)
+		}
+	}
+
+	renderTemplate(w, userProfileTmpl, data)
 }
 
 // handleAPITokenUploads returns JSON upload history for token id.

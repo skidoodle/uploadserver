@@ -32,6 +32,9 @@ var uploadsHTML string
 //go:embed static/users.gohtml
 var usersHTML string
 
+//go:embed static/user_profile.gohtml
+var userProfileHTML string
+
 //go:embed static/login.css static/login.js static/admin.css static/admin.js static/uploads.css static/uploads.js
 var staticFS embed.FS
 
@@ -85,6 +88,18 @@ type usersPageData struct {
 	Error           string
 	Secret          *newTokenSecret
 	InvPolicy       internal.InvitePolicy
+}
+
+// userProfilePageData is the template data for viewing a specific user profile page.
+type userProfilePageData struct {
+	LoggedIn     bool
+	IsAdmin      bool
+	IsRoot       bool
+	CurrentToken *internal.TokenRecord
+	TargetToken  internal.TokenRecord
+	Global       internal.Limits
+	CSRF         string
+	Error        string
 }
 
 // newTokenSecret holds the one-time secret displayed after creating a token.
@@ -268,6 +283,20 @@ var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 	"effective":  internal.EffectiveLimits,
 	"summary":    internal.SummarizeLimits,
 }).Parse(adminHTML))
+
+// userProfileTmpl is the parsed user profile template
+var userProfileTmpl = template.Must(template.New("user_profile").Funcs(template.FuncMap{
+	"fmtDate": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		return t.Format("Jan 2, 2006 3:04 PM")
+	},
+	"humanBytes": internal.FormatSize,
+	"comma":      internal.Comma,
+	"effective":  internal.EffectiveLimits,
+	"summary":    internal.SummarizeLimits,
+}).Parse(userProfileHTML))
 
 // init initializes the admin template with the login and dashboard HTML
 func init() {
