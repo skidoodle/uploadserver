@@ -98,7 +98,7 @@ func main() {
 				baseName := randomHex(hexLen)
 				fileName := filepath.Join(cleanOutputDir, filepath.Base(baseName+"."+ext))
 
-				file, err := os.Create(fileName)
+				file, err := os.Create(fileName) // #nosec G304 -- Test helper creating mock files in cleaned output dir
 				if err != nil {
 					continue
 				}

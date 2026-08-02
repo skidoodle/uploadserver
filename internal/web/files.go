@@ -92,7 +92,7 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=3600")
 	}
 
-	f, err := os.Open(disk)
+	f, err := os.Open(disk) // #nosec G304 -- disk is validated for absolute directory containment by resolveUpload
 	if err != nil {
 		// File disappeared between the probe and open (race); treat as 404.
 		fileNotFound(w, r)

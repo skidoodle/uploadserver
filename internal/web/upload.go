@@ -89,7 +89,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	})
 
 	url := publicURL(cfg, r, name)
-	log.Printf("stored %s (%d bytes) by token %s (%s) from %s",
+	log.Printf("stored %s (%d bytes) by token %s (%s) from %s", // #nosec G706 -- Inputs sanitized via internal.SanitizeLog
 		internal.SanitizeLog(name), n, internal.SanitizeLog(rec.ID), internal.SanitizeLog(rec.Label), internal.SanitizeLog(clientIP(r)))
 
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
@@ -97,7 +97,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = io.WriteString(w, url)
+	_, _ = io.WriteString(w, url) // #nosec G705 -- Content-Type is text/plain; charset=utf-8
 }
 
 // savePart finds the configured file field, writes it atomically to disk, and
@@ -146,7 +146,8 @@ func savePart(cfg internal.Config, mr *multipart.Reader) (name string, n int64, 
 			_ = os.Remove(tmpName)
 			return "", 0, err
 		}
-		if err = os.Rename(tmpName, filepath.Join(cfg.Dir, name)); err != nil {
+		if err = os.Rename(tmpName, filepath.Join(cfg.Dir, name)); err != nil { // #nosec G703 -- name is a generated hex string with validated extension
+			_ = os.Remove(tmpName)
 			_ = os.Remove(tmpName)
 			return "", 0, err
 		}

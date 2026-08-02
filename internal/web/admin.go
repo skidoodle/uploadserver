@@ -29,7 +29,7 @@ const (
 // runs without a TLS proxy) Secure stays off so the cookie still works. maxAge
 // follows net/http semantics: 0 means a session cookie, negative deletes it.
 func setCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAge int) {
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure flag dynamically toggles based on HTTPS request state
 		Name:     name,
 		Value:    value,
 		Path:     "/",
@@ -232,7 +232,7 @@ func (s *server) handleAdminCreateTokenSSR(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: role, Secret: secret}); err == nil {
+	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: role, Secret: secret}); err == nil { // #nosec G117 -- One-time flash cookie for displaying generated token secret
 		setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
 	}
 	redirect(w, r)
@@ -296,7 +296,7 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 	}
 	ref := r.Header.Get("Referer")
 	if isSafeRedirectTarget(ref, r.Host) && !strings.HasSuffix(ref, "/"+id) {
-		http.Redirect(w, r, ref, http.StatusSeeOther)
+		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
 		return
 	}
 	http.Redirect(w, r, "/_/users", http.StatusSeeOther)
@@ -356,7 +356,7 @@ func (s *server) handleInviteTokenSSR(w http.ResponseWriter, r *http.Request) {
 		redirectWithError(w, r, err.Error())
 		return
 	}
-	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: internal.RoleUpload, Secret: secret}); err == nil {
+	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: internal.RoleUpload, Secret: secret}); err == nil { // #nosec G117 -- One-time flash cookie for displaying generated token secret
 		setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
 	}
 	redirect(w, r)
@@ -664,11 +664,11 @@ func isSafeRedirectTarget(target string, reqHost string) bool {
 func redirect(w http.ResponseWriter, r *http.Request) {
 	ref := r.Header.Get("Referer")
 	if isSafeRedirectTarget(ref, r.Host) {
-		http.Redirect(w, r, ref, http.StatusSeeOther)
+		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
 		return
 	}
 	if id := r.PathValue("id"); id != "" {
-		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther)
+		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther) // #nosec G710 -- Safe internal user profile URL
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -681,11 +681,11 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
 	setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
 	ref := r.Header.Get("Referer")
 	if isSafeRedirectTarget(ref, r.Host) {
-		http.Redirect(w, r, ref, http.StatusSeeOther)
+		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
 		return
 	}
 	if id := r.PathValue("id"); id != "" {
-		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther)
+		http.Redirect(w, r, "/_/user/"+id, http.StatusSeeOther) // #nosec G710 -- Safe internal user profile URL
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)

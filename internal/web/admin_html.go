@@ -237,7 +237,7 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 		if query != "" {
 			s += "&q=" + url.QueryEscape(query)
 		}
-		return template.URL(s)
+		return template.URL(s) // #nosec G203 -- Safe internal pagination query string
 	},
 }).Parse(uploadsHTML))
 
@@ -259,7 +259,7 @@ var usersTmpl = template.Must(template.New("users").Funcs(template.FuncMap{
 		if query != "" {
 			s += "&q=" + url.QueryEscape(query)
 		}
-		return template.URL(s)
+		return template.URL(s) // #nosec G203 -- Safe internal pagination query string
 	},
 	"add": func(a, b int) int { return a + b },
 	"sub": func(a, b int) int { return a - b },

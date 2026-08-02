@@ -34,6 +34,6 @@ func logging(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		log.Printf("%s %s %d %s", internal.SanitizeLog(r.Method), internal.SanitizeLog(r.URL.Path), rec.status, time.Since(start).Round(time.Millisecond))
+		log.Printf("%s %s %d %s", internal.SanitizeLog(r.Method), internal.SanitizeLog(r.URL.Path), rec.status, time.Since(start).Round(time.Millisecond)) // #nosec G706 -- Method and path sanitized via internal.SanitizeLog
 	})
 }

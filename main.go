@@ -40,12 +40,12 @@ func main() {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/healthz", nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/healthz", nil) // #nosec G704 -- Local healthcheck query to configured LISTEN_ADDR
 		if err != nil {
 			log.Fatalf("healthcheck request creation failed: %v", err)
 		}
 		client := &http.Client{Timeout: 5 * time.Second}
-		resp, err := client.Do(req)
+		resp, err := client.Do(req) // #nosec G704 -- Local healthcheck query
 		if err != nil {
 			log.Fatalf("healthcheck query failed: %v", err)
 		}
@@ -62,7 +62,7 @@ func main() {
 			log.Fatal(err)
 		}
 	default:
-		log.Printf("unknown command %q", internal.SanitizeLog(os.Args[1]))
+		log.Printf("unknown command %q", internal.SanitizeLog(os.Args[1])) // #nosec G706 -- Sanitized via internal.SanitizeLog
 		fmt.Println(internal.CLIUsage)
 		os.Exit(1)
 	}
