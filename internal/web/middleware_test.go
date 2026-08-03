@@ -37,3 +37,39 @@ func TestMiddleware(t *testing.T) {
 		t.Errorf("logging middleware code = %d; want 200", recLog.Code)
 	}
 }
+
+func TestShouldSilenceLog(t *testing.T) {
+	tests := []struct {
+		method  string
+		path    string
+		silence bool
+	}{
+		{"GET", "/healthz", true},
+		{"GET", "/favicon.ico", true},
+		{"GET", "/", true},
+		{"GET", "/_/admin.css", true},
+		{"GET", "/_/admin.js", true},
+		{"GET", "/_/uploads.css", true},
+		{"GET", "/_/uploads.js", true},
+		{"GET", "/_/upload.js", true},
+		{"GET", "/_/login.css", true},
+		{"GET", "/_/login.js", true},
+		{"GET", "/storedfile.png", true},
+		{"GET", "/image.jpg", true},
+		{"POST", "/", false},
+		{"POST", "/_/login", false},
+		{"POST", "/_/logout", false},
+		{"POST", "/_/tokens/create", false},
+		{"DELETE", "/storedfile.png", false},
+		{"GET", "/_/users", false},
+		{"GET", "/_/api/tokens", false},
+	}
+
+	for _, tt := range tests {
+		req := httptest.NewRequest(tt.method, tt.path, nil)
+		got := shouldSilenceLog(req)
+		if got != tt.silence {
+			t.Errorf("shouldSilenceLog(%s %s) = %v; want %v", tt.method, tt.path, got, tt.silence)
+		}
+	}
+}

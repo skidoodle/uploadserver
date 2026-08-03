@@ -3,7 +3,7 @@ package web
 import (
 	"compress/gzip"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path"
@@ -249,7 +249,7 @@ func (s *server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	disk := filepath.Join(s.cfg.Dir, ownerID, fullName)
 	// #nosec G703,G706 -- disk path is constructed from ownerID and validated fullName, log input sanitized
 	if err := os.Remove(disk); err != nil && !os.IsNotExist(err) {
-		log.Printf("delete file %s: %v", internal.SanitizeLog(fullName), err)
+		slog.Error("delete file error", "name", internal.SanitizeLog(fullName), "error", err)
 		httpError(w, http.StatusInternalServerError, "could not delete file")
 		return
 	}
@@ -260,8 +260,12 @@ func (s *server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		s.fileIndex.Remove(fullName)
 	}
 
-	log.Printf("deleted %s (owner %s) by token %s (%s)", // #nosec G706 -- Inputs are sanitized
-		internal.SanitizeLog(name), internal.SanitizeLog(ownerID),
-		internal.SanitizeLog(rec.ID), internal.SanitizeLog(rec.Label))
+	slog.Info("deleted file",
+		"name", internal.SanitizeLog(fullName),
+		"owner_id", internal.SanitizeLog(ownerID),
+		"actor_id", internal.SanitizeLog(rec.ID),
+		"actor_label", internal.SanitizeLog(rec.Label),
+		"ip", internal.SanitizeLog(clientIP(r)),
+	)
 	w.WriteHeader(http.StatusNoContent)
 }

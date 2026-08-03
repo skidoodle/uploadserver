@@ -1,8 +1,9 @@
 package web
 
 import (
+	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"uploadserver/internal"
@@ -131,22 +132,22 @@ func (s *server) gateAdminAsset(next http.Handler) http.Handler {
 // announce logs startup info, surfacing a freshly minted bootstrap token once.
 func (s *server) announce(secret string, created bool) {
 	if created {
-		log.Printf("(default root token: %s - saved to %s)", secret, s.cfg.StorePath)
+		slog.Info(fmt.Sprintf("(default root token: %s - saved to %s)", secret, s.cfg.StorePath))
 	} else {
-		log.Printf("loaded %d token(s) from %s", s.store.Count(), s.cfg.StorePath)
+		slog.Info(fmt.Sprintf("loaded %d token(s) from %s", s.store.Count(), s.cfg.StorePath))
 	}
 	if s.cfg.BaseURL == "" {
-		log.Print("warning: BASE_URL is not configured")
+		slog.Warn("warning: BASE_URL is not configured")
 	}
 	if s.cfg.ServeFiles {
-		log.Printf("serving uploads at GET /")
+		slog.Info("serving uploads at GET /")
 	}
 }
 
 // handleHealthz checks the database store status and returns HTTP 200/500.
 func (s *server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	if err := s.store.Ping(); err != nil {
-		log.Printf("health check failed: %v", err)
+		slog.Error("health check failed", "error", err)
 		http.Error(w, "database unhealthy", http.StatusInternalServerError)
 		return
 	}

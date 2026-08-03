@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -648,14 +648,14 @@ func renderTemplate(w http.ResponseWriter, tmpl *template.Template, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		log.Printf("template execution error: %v", err)
+		slog.Error("template execution error", "error", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
 	doc, err := html.Parse(&buf)
 	if err != nil {
-		log.Printf("html parse error: %v", err)
+		slog.Error("html parse error", "error", err)
 		_, _ = w.Write(buf.Bytes())
 		return
 	}

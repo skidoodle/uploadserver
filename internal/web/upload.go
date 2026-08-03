@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -39,6 +39,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	budget, err := s.store.AllowUpload(rec.ID, cfg.MaxBytes)
 	switch {
 	case errors.Is(err, internal.ErrQuotaUploads), errors.Is(err, internal.ErrQuotaBytes):
+		slog.Warn("quota limits hit", "id", rec.ID, "error", err, "ip", clientIP(r))
 		httpError(w, http.StatusTooManyRequests, err.Error())
 		return
 	case errors.Is(err, internal.ErrNotFound):
@@ -46,7 +47,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	case err != nil:
-		log.Printf("quota check for %s: %v", rec.ID, err)
+		slog.Error("quota check failed", "id", rec.ID, "error", err, "ip", clientIP(r))
 		httpError(w, http.StatusInternalServerError, "could not check quota")
 		return
 	}
@@ -74,13 +75,13 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	case err != nil:
-		log.Printf("save: %v", err)
+		slog.Error("save upload error", "error", err, "id", rec.ID, "ip", clientIP(r))
 		httpError(w, http.StatusInternalServerError, "could not store upload")
 		return
 	}
 
 	if err := s.store.RecordUpload(rec.ID, n); err != nil {
-		log.Printf("record usage for %s: %v", rec.ID, err)
+		slog.Error("record usage error", "id", rec.ID, "error", err)
 	}
 
 	_ = s.store.RecordUploadEntry(rec.ID, internal.UploadEntry{
@@ -94,8 +95,13 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	url := publicURL(cfg, r, name)
-	log.Printf("stored %s (%d bytes) by token %s (%s) from %s", // #nosec G706 -- Inputs sanitized via internal.SanitizeLog
-		internal.SanitizeLog(name), n, internal.SanitizeLog(rec.ID), internal.SanitizeLog(rec.Label), internal.SanitizeLog(clientIP(r)))
+	slog.Info("stored file",
+		"name", internal.SanitizeLog(name),
+		"size", n,
+		"id", internal.SanitizeLog(rec.ID),
+		"label", internal.SanitizeLog(rec.Label),
+		"ip", internal.SanitizeLog(clientIP(r)),
+	)
 
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
 		writeJSON(w, http.StatusOK, map[string]string{"url": url})

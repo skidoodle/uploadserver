@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -14,8 +14,7 @@ import (
 )
 
 func main() {
-	log.SetFlags(0) // logs go to stderr; let the container runtime add timestamps
-	log.SetPrefix("uploadserver: ")
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
 	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help" {
 		fmt.Println(internal.CLIUsage)
@@ -25,7 +24,8 @@ func main() {
 	switch os.Args[1] {
 	case "run":
 		if err := web.Run(); err != nil {
-			log.Fatal(err)
+			slog.Error("server run error", "error", err)
+			os.Exit(1)
 		}
 	case "healthcheck":
 		addr := os.Getenv("LISTEN_ADDR")
@@ -42,27 +42,31 @@ func main() {
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/healthz", nil) // #nosec G704 -- Local healthcheck query to configured LISTEN_ADDR
 		if err != nil {
-			log.Fatalf("healthcheck request creation failed: %v", err)
+			slog.Error("healthcheck request creation failed", "error", err)
+			os.Exit(1)
 		}
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req) // #nosec G704 -- Local healthcheck query
 		if err != nil {
-			log.Fatalf("healthcheck query failed: %v", err)
+			slog.Error("healthcheck query failed", "error", err)
+			os.Exit(1)
 		}
 		defer func() {
 			_, _ = io.Copy(io.Discard, resp.Body)
 			_ = resp.Body.Close()
 		}()
 		if resp.StatusCode != http.StatusOK {
-			log.Fatalf("healthcheck failed with status %d", resp.StatusCode)
+			slog.Error("healthcheck failed", "status", resp.StatusCode)
+			os.Exit(1)
 		}
 		os.Exit(0)
 	case "list", "add", "rm", "disable", "enable", "limit", "global", "scan", "dump", "reset", "info", "prune", "export", "import", "migrate", "version":
 		if err := internal.RunTokenCLI(os.Args[1:]); err != nil {
-			log.Fatal(err)
+			slog.Error("cli command error", "error", err)
+			os.Exit(1)
 		}
 	default:
-		log.Printf("unknown command %q", internal.SanitizeLog(os.Args[1])) // #nosec G706 -- Sanitized via internal.SanitizeLog
+		slog.Error("unknown command", "command", internal.SanitizeLog(os.Args[1]))
 		fmt.Println(internal.CLIUsage)
 		os.Exit(1)
 	}

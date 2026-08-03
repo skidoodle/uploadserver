@@ -1,8 +1,9 @@
 package web
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 	"uploadserver/internal"
 )
@@ -28,12 +29,50 @@ func (s *statusRecorder) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
+// shouldSilenceLog reports whether access logging should be suppressed for a request.
+// It returns true for healthchecks, favicon requests, and root path GET requests.
+func shouldSilenceLog(r *http.Request) bool {
+	p := r.URL.Path
+
+	if p == "/healthz" {
+		return true
+	}
+
+	if p == "/favicon.ico" {
+		return true
+	}
+
+	if r.Method == http.MethodGet && (p == "/" || p == "") {
+		return true
+	}
+
+	if strings.HasPrefix(p, "/_/") {
+		if strings.HasSuffix(p, ".css") || strings.HasSuffix(p, ".js") || strings.HasSuffix(p, ".ico") {
+			return true
+		}
+	}
+
+	if r.Method == http.MethodGet && !strings.HasPrefix(p, "/_/") {
+		return true
+	}
+
+	return false
+}
+
 // logging records the request method, URL, status, and duration of each request.
 func logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		log.Printf("%s %s %d %s", internal.SanitizeLog(r.Method), internal.SanitizeLog(r.URL.Path), rec.status, time.Since(start).Round(time.Millisecond)) // #nosec G706 -- Method and path sanitized via internal.SanitizeLog
+		if !shouldSilenceLog(r) {
+			slog.Info("http request",
+				"method", internal.SanitizeLog(r.Method),
+				"path", internal.SanitizeLog(r.URL.Path),
+				"status", rec.status,
+				"duration", time.Since(start).Round(time.Millisecond),
+				"ip", clientIP(r),
+			)
+		}
 	})
 }

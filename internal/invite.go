@@ -1,7 +1,7 @@
 package internal
 
 import (
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 )
@@ -106,9 +106,9 @@ func (s *InviteScheduler) checkScheduled(next *time.Time) {
 	}
 
 	if err != nil {
-		log.Printf("invite scheduler: giveaway error: %v", err)
+		slog.Error("invite scheduler: giveaway error", "error", err)
 	} else if updated > 0 {
-		log.Printf("invite scheduler: gave %d invite(s) to %d user(s)", pol.SchedCount, updated)
+		slog.Info("invite policy schedule executed", "count", pol.SchedCount, "updated_users", updated, "mode", pol.SchedMode)
 	}
 
 	// Schedule the next run.
@@ -119,8 +119,8 @@ func (s *InviteScheduler) checkScheduled(next *time.Time) {
 func (s *InviteScheduler) processPending() {
 	applied, err := s.store.ProcessPendingGrants()
 	if err != nil {
-		log.Printf("invite scheduler: pending grant error: %v", err)
+		slog.Error("invite scheduler: pending grant error", "error", err)
 	} else if applied > 0 {
-		log.Printf("invite scheduler: applied %d pending grant(s)", applied)
+		slog.Info("invite policy pending grants applied", "applied_grants", applied)
 	}
 }

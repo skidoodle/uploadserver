@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -46,7 +46,7 @@ func Run() (err error) {
 	if err != nil {
 		return fmt.Errorf("build file index: %w", err)
 	}
-	log.Printf("indexed %d file(s) across all tokens", fileIndex.Count())
+	slog.Info("indexed files across all tokens", "count", fileIndex.Count())
 
 	srv := &server{cfg: cfg, store: store, fileIndex: fileIndex}
 	srv.announce(secret, created)
@@ -70,7 +70,7 @@ func Run() (err error) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("listening on %s, storing uploads in %s", cfg.Addr, cfg.Dir)
+		slog.Info("listening", "addr", cfg.Addr, "dir", cfg.Dir)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -81,7 +81,7 @@ func Run() (err error) {
 		return err
 	case <-ctx.Done():
 		stop() // restore default handling so a second signal force-quits
-		log.Print("shutting down")
+		slog.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return httpSrv.Shutdown(shutdownCtx)
