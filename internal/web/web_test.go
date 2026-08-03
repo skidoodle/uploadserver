@@ -590,6 +590,9 @@ func TestUserUploadsRoute(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `id="modalPrev"`) || !strings.Contains(rec.Body.String(), `id="modalNext"`) {
 		t.Errorf("expected body to contain modalPrev and modalNext navigation buttons")
 	}
+	if !strings.Contains(rec.Body.String(), `id="modalDeleteFilename"`) {
+		t.Errorf("expected body to contain modalDeleteFilename input element")
+	}
 	if !strings.Contains(rec.Body.String(), `data-is-media="true"`) {
 		t.Errorf("expected body to contain data-is-media=\"true\" for image preview")
 	}

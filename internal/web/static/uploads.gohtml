@@ -141,6 +141,7 @@
 					<div class="lightbox-actions">
 						<a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
 						{{ if or $.IsAdmin $.IsSelf }}
+							<input type="hidden" id="modalDeleteFilename" value="">
 							<button type="button" id="modalDeleteBtn" class="act-btn danger">Delete File</button>
 						{{ end }}
 						<button type="button" id="modalClose" class="act-btn">Close</button>
