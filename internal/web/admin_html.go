@@ -121,7 +121,7 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 		if t.IsZero() {
 			return ""
 		}
-		return t.Format("Jan 2, 2006 3:04 PM")
+		return internal.ToLocalTime(t).Format("Jan 2, 2006 3:04 PM")
 	},
 	"humanBytes": internal.FormatSize,
 	"totalSize": func(entries []internal.UploadEntry) string {
@@ -258,7 +258,7 @@ var usersTmpl = template.Must(template.New("users").Funcs(template.FuncMap{
 		if t.IsZero() {
 			return ""
 		}
-		return t.Format("Jan 2, 2006 3:04 PM")
+		return internal.ToLocalTime(t).Format("Jan 2, 2006 3:04 PM")
 	},
 	"humanBytes": internal.FormatSize,
 	"comma":      internal.Comma,
@@ -301,7 +301,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 		if t.IsZero() {
 			return ""
 		}
-		return t.Format("Jan 2, 2006 3:04 PM")
+		return internal.ToLocalTime(t).Format("Jan 2, 2006 3:04 PM")
 	},
 	"humanBytes": internal.FormatSize,
 	"comma":      internal.Comma,
@@ -315,7 +315,7 @@ var userProfileTmpl = template.Must(template.New("user_profile").Funcs(template.
 		if t.IsZero() {
 			return ""
 		}
-		return t.Format("Jan 2, 2006 3:04 PM")
+		return internal.ToLocalTime(t).Format("Jan 2, 2006 3:04 PM")
 	},
 	"humanBytes": internal.FormatSize,
 	"comma":      internal.Comma,

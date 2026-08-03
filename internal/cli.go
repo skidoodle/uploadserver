@@ -351,11 +351,14 @@ func limitSummary(l Limits) string {
 	return "-"
 }
 
+// fmtTime formats a time as a localized string, or "-" when it is zero.
+//
+// The time is formatted as "YYYY-MM-DD HH:MM" in the local timezone.
 func fmtTime(t time.Time) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return t.Format("2006-01-02 15:04")
+	return ToLocalTime(t).Format("2006-01-02 15:04")
 }
 
 // runScan scans UPLOAD_DIR for files not tracked in any token's upload history

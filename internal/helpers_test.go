@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSanitizeLog(t *testing.T) {
@@ -63,5 +64,19 @@ func TestCheckWritable(t *testing.T) {
 	invalidDir := filepath.Join(dir, "non_existent_subdir_12345")
 	if err := CheckWritable(invalidDir); err == nil {
 		t.Errorf("CheckWritable(%q) expected error for non-existent directory", invalidDir)
+	}
+}
+
+func TestTimezoneHelpers(t *testing.T) {
+	t.Setenv("TZ", "Europe/Budapest")
+	loc := GetLocation()
+	if loc.String() != "Europe/Budapest" {
+		t.Errorf("GetLocation() = %s; want Europe/Budapest", loc.String())
+	}
+
+	utcTime := time.Date(2026, 8, 3, 17, 0, 0, 0, time.UTC)
+	localTime := ToLocalTime(utcTime)
+	if localTime.Hour() != 19 {
+		t.Errorf("ToLocalTime() hour = %d; want 19 for 17:00 UTC in Europe/Budapest", localTime.Hour())
 	}
 }

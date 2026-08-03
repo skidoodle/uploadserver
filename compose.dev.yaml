@@ -17,6 +17,7 @@ services:
       - MAX_UPLOAD_BYTES=1073741824
       - STRIP_EXTENSION=true
       - RANDOM_NAME_LENGTH=8
+      - TZ=Europe/Budapest
       - SERVE_FILES=true
     volumes:
       - data:/data
