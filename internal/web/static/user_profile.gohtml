@@ -68,10 +68,10 @@
 			<div class="profile-actions">
 				<a href="/_/uploads/{{ .TargetToken.ID }}" class="act-btn">View Files</a>
 				{{ if or $.IsAdmin $.IsSelf }}
-					<button type="button" class="act" data-rename-id="{{ .TargetToken.ID }}" data-label="{{ .TargetToken.Label }}">Rename Label</button>
+					<button type="button" class="act" commandfor="renamedlg" command="show-modal" data-rename-id="{{ .TargetToken.ID }}" data-label="{{ .TargetToken.Label }}">Rename Label</button>
 				{{ end }}
 				{{ if $.IsAdmin }}
-					<button type="button" class="act" data-limit-id="{{ .TargetToken.ID }}"
+					<button type="button" class="act" commandfor="limdlg" command="show-modal" data-limit-id="{{ .TargetToken.ID }}"
 						data-max-bytes="{{ with .TargetToken.Limits.MaxBytes }}{{ humanBytes . }}{{ end }}"
 						data-max-uploads="{{ with .TargetToken.Limits.MaxUploads }}{{ . }}{{ end }}"
 						data-monthly-bytes="{{ with .TargetToken.Limits.MonthlyBytes }}{{ humanBytes . }}{{ end }}"
@@ -87,17 +87,17 @@
 					</form>
 					{{ if $.IsRoot }}
 						{{ if eq .TargetToken.Role "admin" }}
-							<button type="button" class="act" data-role-id="{{ .TargetToken.ID }}" data-role-target="upload" data-role-label="Demote to Uploader">Demote to Uploader</button>
+							<button type="button" class="act" commandfor="roledlg" command="show-modal" data-role-id="{{ .TargetToken.ID }}" data-role-target="upload" data-role-label="Demote to Uploader">Demote to Uploader</button>
 						{{ else if eq .TargetToken.Role "upload" }}
-							<button type="button" class="act" data-role-id="{{ .TargetToken.ID }}" data-role-target="admin" data-role-label="Promote to Admin">Promote to Admin</button>
+							<button type="button" class="act" commandfor="roledlg" command="show-modal" data-role-id="{{ .TargetToken.ID }}" data-role-target="admin" data-role-label="Promote to Admin">Promote to Admin</button>
 						{{ end }}
 					{{ end }}
 				{{ end }}
 				{{ if or $.IsAdmin $.IsSelf }}
-					<button type="button" class="act danger" data-purge-id="{{ .TargetToken.ID }}">Purge All Media</button>
+					<button type="button" class="act danger" commandfor="purgedlg" command="show-modal" data-purge-id="{{ .TargetToken.ID }}">Purge All Media</button>
 				{{ end }}
 				{{ if and (or $.IsAdmin $.IsSelf) (ne .TargetToken.Role "root") }}
-					<button type="button" class="act danger" data-delete-id="{{ .TargetToken.ID }}" data-is-self="{{ if $.IsSelf }}true{{ else }}false{{ end }}">{{ if $.IsSelf }}Delete Account{{ else }}Delete Token{{ end }}</button>
+					<button type="button" class="act danger" commandfor="dlg" command="show-modal" data-delete-id="{{ .TargetToken.ID }}" data-is-self="{{ if $.IsSelf }}true{{ else }}false{{ end }}">{{ if $.IsSelf }}Delete Account{{ else }}Delete Token{{ end }}</button>
 				{{ end }}
 			</div>
 		</fieldset>
@@ -107,7 +107,7 @@
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p id="dlgmsg"></p>
 				<div class="bar bar-end">
-					<button type="button" data-cancel>Cancel</button>
+					<button type="button" commandfor="dlg" command="close">Cancel</button>
 					<button type="submit" class="danger">Delete</button>
 				</div>
 			</form>
@@ -118,7 +118,7 @@
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p id="purgedlgmsg"></p>
 				<div class="bar bar-end">
-					<button type="button" data-cancel>Cancel</button>
+					<button type="button" commandfor="purgedlg" command="close">Cancel</button>
 					<button type="submit" class="danger">Purge Media</button>
 				</div>
 			</form>
@@ -130,7 +130,7 @@
 				<input type="hidden" name="role" id="roleTargetInput" value="">
 				<p id="roledlgmsg"></p>
 				<div class="bar bar-end">
-					<button type="button" data-cancel>Cancel</button>
+					<button type="button" commandfor="roledlg" command="close">Cancel</button>
 					<button type="submit">Confirm</button>
 				</div>
 			</form>
@@ -151,7 +151,7 @@
 				<p class="dim lim-hint">Blank or 0 means unlimited/none. Personal caps override global defaults.</p>
 				<div id="lim-err" class="quota-err"></div>
 				<div class="bar bar-end">
-					<button type="button" data-cancel>Cancel</button>
+					<button type="button" commandfor="limdlg" command="close">Cancel</button>
 					<button type="submit">Save</button>
 				</div>
 			</form>
@@ -168,7 +168,7 @@
 				</label>
 				<div id="rename-err" class="label-err" hidden></div>
 				<div class="bar bar-end">
-					<button type="button" data-cancel>Cancel</button>
+					<button type="button" commandfor="renamedlg" command="close">Cancel</button>
 					<button type="submit">Save</button>
 				</div>
 			</form>

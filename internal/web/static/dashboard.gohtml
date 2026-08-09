@@ -16,14 +16,14 @@
 {{ end }}
 
 {{ if .Secret }}
-	<div class="secret">
-		<button type="button" class="secret-close" title="Dismiss">&times;</button>
+	<div class="secret" id="secretCard">
+		<button type="button" class="secret-close" title="Dismiss" commandfor="secretCard" command="--dismiss">&times;</button>
 		New {{ .Secret.Role }} token <code>{{ .Secret.ID }}</code> &#8212; shown once:
 		<div class="srow">
 			<span id="sv" class="mono blurred">{{ .Secret.Secret }}</span>
-			<button type="button" id="reveal" class="act" title="Reveal token">Show</button>
-			<button type="button" id="cp" class="act">Copy</button>
-			<button type="button" id="dl-sxcu" class="act" data-token-id="{{ .Secret.ID }}">Download .sxcu</button>
+			<button type="button" id="reveal" class="act" title="Reveal token" commandfor="secretCard" command="--toggle-blur">Show</button>
+			<button type="button" id="cp" class="act" commandfor="secretCard" command="--copy">Copy</button>
+			<button type="button" id="dl-sxcu" class="act" commandfor="secretCard" command="--download-sxcu" data-token-id="{{ .Secret.ID }}">Download .sxcu</button>
 		</div>
 	</div>
 {{ end }}
@@ -37,7 +37,7 @@
 				pattern="^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$"
 				title="1-9 alphanumeric characters (can contain _ or - inside).">
 			<div class="csel" id="roleSel">
-				<button type="button" class="csel-btn" id="roleBtn">role: upload</button>
+				<button type="button" class="csel-btn" id="roleBtn" commandfor="roleSel" command="--toggle-select">role: upload</button>
 				<div class="csel-opts" id="roleOpts">
 					<div class="csel-opt active" data-value="upload">role: upload</div>
 					<div class="csel-opt" data-value="admin">role: admin</div>
@@ -45,7 +45,7 @@
 			</div>
 			<input type="hidden" name="role" id="role" value="upload">
 			<button type="submit">Create</button>
-			<button type="button" id="giveawayBtn">Giveaway Invites</button>
+			<button type="button" id="giveawayBtn" commandfor="giveawaydlg" command="show-modal">Giveaway Invites</button>
 		</form>
 		<div id="label-err" class="label-err" hidden></div>
 	</fieldset>
@@ -106,7 +106,7 @@
 				<div class="policy-field">
 					<span>Mode</span>
 					<div class="csel" id="schedModeSel">
-						<button type="button" class="csel-btn" id="schedModeBtn">
+						<button type="button" class="csel-btn" id="schedModeBtn" commandfor="schedModeSel" command="--toggle-select">
 							{{ if eq .InvPolicy.SchedMode
 								"random"
 							}}Random pool
@@ -209,14 +209,14 @@
 						{{- end -}}
 					</td>
 					<td class="ctx-col">
-						{{ if ne .Role "root" }}<div class="ctx">
-								<button type="button" class="ctx-trigger" aria-label="Actions">⋯</button>
+						{{ if ne .Role "root" }}<div class="ctx" id="ctx-{{ .ID }}">
+								<button type="button" class="ctx-trigger" commandfor="ctx-{{ .ID }}" command="--toggle-menu" aria-label="Actions">⋯</button>
 								<div class="ctx-menu">
 									<a href="/_/user/{{ .ID }}" class="ctx-item">Profile</a>
 									<a href="/_/uploads/{{ .ID }}" class="ctx-item">Files</a>
-									<button type="button" class="ctx-item" data-rename-id="{{ .ID }}"
+									<button type="button" class="ctx-item" commandfor="renamedlg" command="show-modal" data-rename-id="{{ .ID }}"
 										data-label="{{ .Label }}">Rename</button>
-									<button type="button" class="ctx-item" data-limit-id="{{ .ID }}"
+									<button type="button" class="ctx-item" commandfor="limdlg" command="show-modal" data-limit-id="{{ .ID }}"
 										data-max-bytes="{{ with .Limits.MaxBytes }}{{ humanBytes . }}{{ end }}"
 										data-max-uploads="{{ with .Limits.MaxUploads }}{{ . }}{{ end }}"
 										data-monthly-bytes="{{ with .Limits.MonthlyBytes }}{{ humanBytes . }}{{ end }}"
@@ -231,15 +231,15 @@
 									</form>
 									{{ if $.IsRoot }}
 										{{ if eq .Role `admin` }}
-											<button type="button" class="ctx-item" data-role-id="{{ .ID }}" data-role-target="upload"
+											<button type="button" class="ctx-item" commandfor="roledlg" command="show-modal" data-role-id="{{ .ID }}" data-role-target="upload"
 												data-role-label="Demote to Uploader">Demote to Uploader</button>
 										{{ else if eq .Role `upload` }}
-											<button type="button" class="ctx-item" data-role-id="{{ .ID }}" data-role-target="admin"
+											<button type="button" class="ctx-item" commandfor="roledlg" command="show-modal" data-role-id="{{ .ID }}" data-role-target="admin"
 												data-role-label="Promote to Admin">Promote to Admin</button>
 										{{ end }}
 									{{ end }}
 									<div class="ctx-sep"></div>
-									<button type="button" class="ctx-item ctx-danger" data-delete-id="{{ .ID }}">Delete</button>
+									<button type="button" class="ctx-item ctx-danger" commandfor="dlg" command="show-modal" data-delete-id="{{ .ID }}">Delete</button>
 								</div>
 							</div>
 						{{ end }}
@@ -255,7 +255,7 @@
 			<input type="hidden" name="role" id="roleTargetInput" value="">
 			<p id="roledlgmsg"></p>
 			<div class="bar bar-end">
-				<button type="button" data-cancel>Cancel</button>
+				<button type="button" commandfor="roledlg" command="close">Cancel</button>
 				<button type="submit">Confirm</button>
 			</div>
 		</form>
@@ -287,7 +287,7 @@
 			<p class="dim lim-hint">Blank or 0 means unlimited/none. Personal caps override global defaults.</p>
 			<div id="lim-err" class="quota-err"></div>
 			<div class="bar bar-end">
-				<button type="button" data-cancel>Cancel</button>
+				<button type="button" commandfor="limdlg" command="close">Cancel</button>
 				<button type="submit">Save</button>
 			</div>
 		</form>
@@ -371,10 +371,10 @@
 			</table>
 			<div class="profile-actions">
 				<a href="/_/uploads/{{ .CurrentToken.ID }}" class="act-btn">View My Files</a>
-				<button type="button" class="act" data-rename-id="{{ .CurrentToken.ID }}"
+				<button type="button" class="act" commandfor="renamedlg" command="show-modal" data-rename-id="{{ .CurrentToken.ID }}"
 					data-label="{{ .CurrentToken.Label }}">Rename Label</button>
-				<button type="button" class="act danger" data-purge-id="{{ .CurrentToken.ID }}">Purge All Media</button>
-				<button type="button" class="act danger" data-delete-id="{{ .CurrentToken.ID }}" data-is-self="true">Delete Account</button>
+				<button type="button" class="act danger" commandfor="purgedlg" command="show-modal" data-purge-id="{{ .CurrentToken.ID }}">Purge All Media</button>
+				<button type="button" class="act danger" commandfor="dlg" command="show-modal" data-delete-id="{{ .CurrentToken.ID }}" data-is-self="true">Delete Account</button>
 			</div>
 		</fieldset>
 
@@ -386,7 +386,7 @@
 		<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 		<p id="dlgmsg"></p>
 		<div class="bar bar-end">
-			<button type="button" data-cancel>Cancel</button>
+			<button type="button" commandfor="dlg" command="close">Cancel</button>
 			<button type="submit" class="danger">Delete</button>
 		</div>
 	</form>
@@ -397,7 +397,7 @@
 		<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 		<p id="purgedlgmsg"></p>
 		<div class="bar bar-end">
-			<button type="button" data-cancel>Cancel</button>
+			<button type="button" commandfor="purgedlg" command="close">Cancel</button>
 			<button type="submit" class="danger">Purge Media</button>
 		</div>
 	</form>
@@ -413,7 +413,7 @@
 		</label>
 		<div id="rename-err" class="label-err" hidden></div>
 		<div class="bar bar-end">
-			<button type="button" data-cancel>Cancel</button>
+			<button type="button" commandfor="renamedlg" command="close">Cancel</button>
 			<button type="submit">Save</button>
 		</div>
 	</form>
@@ -428,7 +428,7 @@
 			<div class="dlg-label">
 				<span>Target</span>
 				<div class="csel" id="giveawayModeSel">
-					<button type="button" class="csel-btn" id="giveawayModeBtn">All uploaders</button>
+					<button type="button" class="csel-btn" id="giveawayModeBtn" commandfor="giveawayModeSel" command="--toggle-select">All uploaders</button>
 					<div class="csel-opts" id="giveawayModeOpts">
 						<div class="csel-opt active" data-value="all">All uploaders</div>
 						<div class="csel-opt" data-value="random">Random pool</div>
@@ -447,7 +447,7 @@
 			</label>
 		</div>
 		<div class="bar bar-end">
-			<button type="button" data-cancel>Cancel</button>
+			<button type="button" commandfor="giveawaydlg" command="close">Cancel</button>
 			<button type="submit">Grant Invites</button>
 		</div>
 	</form>

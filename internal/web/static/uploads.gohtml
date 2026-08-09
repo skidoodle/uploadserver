@@ -31,14 +31,14 @@
 					<span class="stat"><strong>{{ .TotalFiles }}</strong> file{{ if ne .TotalFiles 1 }}s{{ end }}</span>
 				{{ end }}
 				{{ if or $.IsAdmin $.IsSelf }}
-					<button type="button" class="act danger" data-purge-id="{{ .Token.ID }}">Purge All Media</button>
+					<button type="button" class="act danger" commandfor="purgedlg" command="show-modal" data-purge-id="{{ .Token.ID }}">Purge All Media</button>
 				{{ end }}
 			</div>
 			<form class="search-box" method="GET" action="" id="searchForm">
 				<svg class="search-icon" viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
 				<input type="search" name="q" id="searchInput" value="{{ .Query }}" placeholder="Search all files…" aria-label="Search files" autocomplete="off" spellcheck="false" />
 				{{ if .Query }}
-					<button type="button" id="searchClear" class="search-clear-btn" aria-label="Clear search">&times;</button>
+					<button type="button" id="searchClear" commandfor="searchForm" command="--clear-search" class="search-clear-btn" aria-label="Clear search">&times;</button>
 				{{ end }}
 			</form>
 		</div>
@@ -57,7 +57,7 @@
 
 				{{ range .Uploads }}
 					<div class="file-row">
-						<span class="file-preview" data-preview-url="{{ fileURL $.BaseURL .Name $.StripExtension }}" data-file-name="{{ stripExt .Name }}" data-raw-name="{{ .Name }}" data-is-media="{{ if isMedia .Name }}true{{ else }}false{{ end }}" data-media-type="{{ if isVideo .Name }}video{{ else if isImage .Name }}image{{ else }}other{{ end }}">
+						<button type="button" class="file-preview" {{ if isMedia .Name }}commandfor="imgModal" command="show-modal"{{ end }} data-preview-url="{{ fileURL $.BaseURL .Name $.StripExtension }}" data-file-name="{{ stripExt .Name }}" data-raw-name="{{ .Name }}" data-is-media="{{ if isMedia .Name }}true{{ else }}false{{ end }}" data-media-type="{{ if isVideo .Name }}video{{ else if isImage .Name }}image{{ else }}other{{ end }}">
 							{{ if isImage .Name }}
 								<img src="{{ fileURL $.BaseURL .Name $.StripExtension }}" loading="lazy" alt="{{ stripExt .Name }}">
 							{{ else if isVideo .Name }}
@@ -65,14 +65,14 @@
 							{{ else }}
 								<span class="file-icon-fallback">{{ fileIcon .Name }}</span>
 							{{ end }}
-						</span>
+						</button>
 						<span class="file-name"><a href="{{ fileURL $.BaseURL .Name $.StripExtension }}" target="_blank" rel="noopener">{{ stripExt .Name }}</a></span>
 						<span class="file-ext"><span class="ext-badge">{{ fileExt .Name }}</span></span>
 						<span class="file-size">{{ humanBytes .Size }}</span>
 						<span class="file-date">{{ fmtDate .UploadedAt }}</span>
 						{{ if or $.IsAdmin $.IsSelf }}
 							<span class="file-actions">
-								<button type="button" class="act danger icon-btn" data-delete-filename="{{ .Name }}" title="Delete file">🗑️</button>
+								<button type="button" class="act danger icon-btn" commandfor="filedel-dlg" command="show-modal" data-delete-filename="{{ .Name }}" title="Delete file">🗑️</button>
 							</span>
 						{{ end }}
 					</div>
@@ -123,10 +123,10 @@
 			</div>
 		{{ end }}
 		<dialog id="imgModal" class="lightbox-dialog">
-			<button type="button" id="modalPrev" class="lightbox-nav-btn nav-prev" aria-label="Previous image">
+			<button type="button" id="modalPrev" commandfor="imgModal" command="--prev" class="lightbox-nav-btn nav-prev" aria-label="Previous image">
 				<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
 			</button>
-			<button type="button" id="modalNext" class="lightbox-nav-btn nav-next" aria-label="Next image">
+			<button type="button" id="modalNext" commandfor="imgModal" command="--next" class="lightbox-nav-btn nav-next" aria-label="Next image">
 				<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
 			</button>
 			<div class="lightbox-content">
@@ -142,9 +142,9 @@
 						<a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
 						{{ if or $.IsAdmin $.IsSelf }}
 							<input type="hidden" id="modalDeleteFilename" value="">
-							<button type="button" id="modalDeleteBtn" class="act-btn danger">Delete File</button>
+							<button type="button" id="modalDeleteBtn" commandfor="filedel-dlg" command="show-modal" class="act-btn danger">Delete File</button>
 						{{ end }}
-						<button type="button" id="modalClose" class="act-btn">Close</button>
+						<button type="button" id="modalClose" commandfor="imgModal" command="close" class="act-btn">Close</button>
 					</div>
 				</div>
 			</div>
@@ -156,7 +156,7 @@
 				<input type="hidden" name="filename" id="filedel-input" value="">
 				<p id="filedel-msg">Delete file permanently?</p>
 				<div class="bar bar-end">
-					<button type="button" data-cancel>Cancel</button>
+					<button type="button" commandfor="filedel-dlg" command="close">Cancel</button>
 					<button type="submit" class="danger">Delete File</button>
 				</div>
 			</form>
@@ -167,7 +167,7 @@
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p id="purgedlgmsg"></p>
 				<div class="bar bar-end">
-					<button type="button" data-cancel>Cancel</button>
+					<button type="button" commandfor="purgedlg" command="close">Cancel</button>
 					<button type="submit" class="danger">Purge Media</button>
 				</div>
 			</form>

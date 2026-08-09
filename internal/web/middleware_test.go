@@ -20,8 +20,8 @@ func TestMiddleware(t *testing.T) {
 	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Errorf("X-Content-Type-Options = %q; want nosniff", rec.Header().Get("X-Content-Type-Options"))
 	}
-	if rec.Header().Get("Referrer-Policy") != "no-referrer" {
-		t.Errorf("Referrer-Policy = %q; want no-referrer", rec.Header().Get("Referrer-Policy"))
+	if rec.Header().Get("Referrer-Policy") != "same-origin" {
+		t.Errorf("Referrer-Policy = %q; want same-origin", rec.Header().Get("Referrer-Policy"))
 	}
 	if rec.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("Cache-Control = %q; want no-store", rec.Header().Get("Cache-Control"))

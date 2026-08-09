@@ -4,7 +4,6 @@
   const modalVideo = document.getElementById('modalVideo');
   const modalTitle = document.getElementById('modalTitle');
   const modalDownload = document.getElementById('modalDownload');
-  const modalClose = document.getElementById('modalClose');
   const modalPrev = document.getElementById('modalPrev');
   const modalNext = document.getElementById('modalNext');
   const fileList = document.getElementById('fileList');
@@ -167,23 +166,39 @@
     }
   }
 
-  function bindPreviews() {
-    document.querySelectorAll('.file-preview[data-is-media="true"]').forEach((preview) => {
-      preview.addEventListener('click', () => {
-        const url = preview.dataset.previewUrl;
+  document.addEventListener('click', (e) => {
+    const preview = e.target.closest('.file-preview[data-is-media="true"]');
+    if (preview) {
+      const url = preview.dataset.previewUrl;
+      const idx = mediaItems.findIndex(item => item.url === url);
+      if (idx !== -1) {
+        openModal(idx);
+      }
+    }
+  });
+
+  modalPrev?.addEventListener('click', () => navigate('prev'));
+  modalNext?.addEventListener('click', () => navigate('next'));
+  modalClose?.addEventListener('click', () => closeModal());
+
+  modal.addEventListener('command', (e) => {
+    if (e.command === 'show-modal') {
+      const invoker = _cmdInvoker(e);
+      if (invoker && invoker.dataset.previewUrl) {
+        const url = invoker.dataset.previewUrl;
         const idx = mediaItems.findIndex(item => item.url === url);
         if (idx !== -1) {
           openModal(idx);
         }
-      });
-    });
-  }
-
-  bindPreviews();
-
-  if (modalClose) modalClose.addEventListener('click', closeModal);
-  if (modalPrev) modalPrev.addEventListener('click', () => navigate('prev'));
-  if (modalNext) modalNext.addEventListener('click', () => navigate('next'));
+      }
+    } else if (e.command === '--prev') {
+      navigate('prev');
+    } else if (e.command === '--next') {
+      navigate('next');
+    } else if (e.command === 'close') {
+      closeModal();
+    }
+  });
 
   if (modal) {
     modal.addEventListener('click', (e) => {
@@ -192,7 +207,23 @@
     modal.addEventListener('cancel', () => {
       closeModal();
     });
+    modal.addEventListener('close', () => {
+      document.body.style.overflow = '';
+      stopPlayback();
+    });
   }
+
+  window.addEventListener('wheel', (e) => {
+    if (modal && modal.open) {
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  window.addEventListener('touchmove', (e) => {
+    if (modal && modal.open) {
+      e.preventDefault();
+    }
+  }, { passive: false });
 
   document.addEventListener('keydown', (e) => {
     if (modal && modal.open) {
@@ -237,17 +268,23 @@
   const searchInput = document.getElementById('searchInput');
   const searchClear = document.getElementById('searchClear');
 
-  if (searchClear) {
-    searchClear.addEventListener('click', () => {
-      window.location.href = window.location.pathname;
-    });
-  }
+  const doClear = () => {
+    window.location.href = window.location.pathname;
+  };
+
+  searchClear?.addEventListener('click', doClear);
+
+  searchForm?.addEventListener('command', (e) => {
+    if (e.command === '--clear-search') {
+      doClear();
+    }
+  });
 
   if (searchForm && searchInput) {
     searchForm.addEventListener('submit', (e) => {
       if (!searchInput.value.trim()) {
         e.preventDefault();
-        window.location.href = window.location.pathname;
+        doClear();
       }
     });
   }

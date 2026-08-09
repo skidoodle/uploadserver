@@ -1,11 +1,41 @@
+(function () {
+  function getInvoker(e) {
+    return e.source || e.invoker;
+  }
+  window._cmdInvoker = getInvoker;
+
+  if (!('CommandEvent' in window)) {
+    document.addEventListener('click', (e) => {
+      const button = e.target.closest('button[commandfor], button[data-commandfor]');
+      if (!button) return;
+      const targetId = button.getAttribute('commandfor') || button.dataset.commandfor;
+      const command = button.getAttribute('command') || button.dataset.command;
+      if (!targetId || !command) return;
+
+      const target = document.getElementById(targetId);
+      if (!target) return;
+
+      const event = new CustomEvent('command', { bubbles: true, cancelable: true });
+      event.command = command;
+      event.source = button;
+      event.invoker = button;
+      const proceed = target.dispatchEvent(event);
+
+      if (proceed) {
+        if (command === 'show-modal' && typeof target.showModal === 'function') {
+          target.showModal();
+        } else if (command === 'close' && typeof target.close === 'function') {
+          target.close();
+        }
+      }
+    });
+  }
+})();
+
 class AdminDashboard {
   #labelInput;
   #errorContainer;
   #form;
-  #roleSelector;
-  #roleButton;
-  #roleOptionsContainer;
-  #roleHiddenInput;
 
   #labelPattern = /^[a-zA-Z0-9]([a-zA-Z0-9_-]{0,7}[a-zA-Z0-9])?$/;
   #sizePattern = /^\d+(\.\d+)?\s*(b|kb|kib|mb|mib|gb|gib|tb|tib)?$/i;
@@ -15,11 +45,6 @@ class AdminDashboard {
     this.#labelInput = document.querySelector('input[name="label"]');
     this.#errorContainer = document.getElementById("label-err");
     this.#form = this.#labelInput?.form;
-
-    this.#roleSelector = document.getElementById("roleSel");
-    this.#roleButton = document.getElementById("roleBtn");
-    this.#roleOptionsContainer = document.getElementById("roleOpts");
-    this.#roleHiddenInput = document.getElementById("role");
 
     this.#initCustomSelectors();
     this.#initContextMenus();
@@ -50,34 +75,48 @@ class AdminDashboard {
   }
 
   #initCustomSelectors() {
-    document.querySelectorAll(".csel").forEach((container) => {
-      const button = container.querySelector(".csel-btn");
-      const optionsContainer = container.querySelector(".csel-opts");
-      if (!button || !optionsContainer) return;
+    const closeAllSelects = () => {
+      document.querySelectorAll(".csel.open").forEach((c) => c.classList.remove("open"));
+    };
 
-      const hiddenInput =
-        container.querySelector('input[type="hidden"]') ||
-        container.nextElementSibling;
+    const toggleSelect = (btn) => {
+      const container = btn?.closest(".csel");
+      if (!container) return;
+      const isOpen = container.classList.contains("open");
+      closeAllSelects();
+      if (!isOpen) {
+        container.classList.add("open");
+      }
+    };
 
-      button.addEventListener("click", (event) => {
+    document.addEventListener("command", (e) => {
+      if (e.command === "--toggle-select") {
+        toggleSelect(_cmdInvoker(e));
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      const btn = event.target.closest(".csel-btn");
+      if (btn) {
         event.preventDefault();
-        event.stopPropagation();
-        document.querySelectorAll(".csel.open").forEach((c) => {
-          if (c !== container) c.classList.remove("open");
-        });
-        container.classList.toggle("open");
-      });
+        toggleSelect(btn);
+        return;
+      }
 
-      optionsContainer.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const option = event.target.closest(".csel-opt");
-        if (!option) return;
+      const option = event.target.closest(".csel-opt");
+      if (option) {
+        const container = option.closest(".csel");
+        const button = container?.querySelector(".csel-btn");
+        const optionsContainer = option.closest(".csel-opts");
+        const hiddenInput =
+          container?.querySelector('input[type="hidden"]') ||
+          container?.nextElementSibling;
 
-        optionsContainer.querySelectorAll(".csel-opt").forEach((opt) => {
-          opt.classList.remove("active");
-        });
-
+        optionsContainer
+          ?.querySelectorAll(".csel-opt")
+          .forEach((opt) => opt.classList.remove("active"));
         option.classList.add("active");
+
         if (hiddenInput && hiddenInput.tagName === "INPUT") {
           const oldVal = hiddenInput.value;
           hiddenInput.value = option.dataset.value;
@@ -85,49 +124,43 @@ class AdminDashboard {
             hiddenInput.dispatchEvent(new Event("change", { bubbles: true }));
           }
         }
-        button.textContent = option.textContent;
-        container.classList.remove("open");
-      });
-    });
+        if (button) button.textContent = option.textContent;
+        closeAllSelects();
+        return;
+      }
 
-    document.addEventListener("click", (event) => {
       if (!event.target.closest(".csel")) {
-        document.querySelectorAll(".csel.open").forEach((c) => {
-          c.classList.remove("open");
-        });
+        closeAllSelects();
       }
     });
 
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape") {
-        document.querySelectorAll(".csel.open").forEach((c) => {
-          c.classList.remove("open");
-        });
+        closeAllSelects();
       }
     });
   }
 
   #initContextMenus() {
-    const closeAll = () => {
-      document.querySelectorAll('.ctx.open').forEach(ctx => {
-        ctx.classList.remove('open');
+    const closeAllMenus = () => {
+      document.querySelectorAll(".ctx.open").forEach((ctx) => {
+        ctx.classList.remove("open");
       });
     };
 
-    document.querySelectorAll('.ctx').forEach(ctx => {
-      const trigger = ctx.querySelector('.ctx-trigger');
-      const menu = ctx.querySelector('.ctx-menu');
-      if (!trigger || !menu) return;
+    const toggleMenu = (trigger) => {
+      const container = trigger?.closest(".ctx");
+      if (!container) return;
 
-      trigger.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isOpen = ctx.classList.contains('open');
-        closeAll();
-        if (!isOpen) {
-          ctx.classList.add('open');
+      const isOpen = container.classList.contains("open");
+      closeAllMenus();
+      if (!isOpen) {
+        container.classList.add("open");
+        const menu = container.querySelector(".ctx-menu");
+        if (menu) {
           const rect = trigger.getBoundingClientRect();
-          menu.style.position = 'fixed';
-          const menuHeight = menu.offsetHeight;
+          menu.style.position = "fixed";
+          const menuHeight = menu.offsetHeight || 180;
           let top = rect.bottom + 4;
           if (top + menuHeight > window.innerHeight - 10) {
             top = rect.top - 4 - menuHeight;
@@ -135,38 +168,49 @@ class AdminDashboard {
           menu.style.top = `${top}px`;
           const rightDist = window.innerWidth - rect.right;
           menu.style.right = `${Math.max(10, rightDist)}px`;
-          menu.style.left = 'auto';
-          menu.style.zIndex = '9999';
+          menu.style.left = "auto";
+          menu.style.zIndex = "9999";
         }
-      });
+      }
+    };
 
-      menu.querySelectorAll('.ctx-item').forEach(item => {
-        if (item.tagName === 'A' || item.type === 'button') {
-          item.addEventListener('click', () => {
-            closeAll();
-          });
-        }
-      });
-    });
-
-    document.addEventListener('click', (e) => {
-      if (!e.target.closest('.ctx-menu')) {
-        closeAll();
+    document.addEventListener("command", (e) => {
+      if (e.command === "--toggle-menu") {
+        toggleMenu(_cmdInvoker(e));
       }
     });
 
-    window.addEventListener('scroll', closeAll, true);
-    window.addEventListener('resize', closeAll);
-
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        closeAll();
+    document.addEventListener("click", (e) => {
+      const trigger = e.target.closest(".ctx-trigger");
+      if (trigger) {
+        e.preventDefault();
+        toggleMenu(trigger);
+        return;
       }
+
+      const item = e.target.closest(".ctx-item");
+      if (item) {
+        closeAllMenus();
+        return;
+      }
+      if (!e.target.closest(".ctx")) {
+        closeAllMenus();
+      }
+    });
+
+    window.addEventListener("scroll", closeAllMenus, true);
+    window.addEventListener("resize", closeAllMenus);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeAllMenus();
     });
   }
 
   #initLabelValidation() {
-    this.#setupInPlaceLabelValidation(this.#labelInput, this.#errorContainer, this.#form);
+    this.#setupInPlaceLabelValidation(
+      this.#labelInput,
+      this.#errorContainer,
+      this.#form,
+    );
 
     const inviteInput = document.getElementById("inviteInput");
     const inviteErr = document.getElementById("invite-err");
@@ -185,7 +229,9 @@ class AdminDashboard {
         return true;
       }
       if (!this.#labelPattern.test(val)) {
-        errorEl.textContent = input.title || "1-9 characters. Must start and end with a letter or number.";
+        errorEl.textContent =
+          input.title ||
+          "1-9 characters. Must start and end with a letter or number.";
         errorEl.hidden = false;
         input.classList.add("invalid");
         return false;
@@ -206,44 +252,40 @@ class AdminDashboard {
   }
 
   validateLabel() {
-    return this.#setupInPlaceLabelValidation(this.#labelInput, this.#errorContainer, this.#form)();
+    return this.#setupInPlaceLabelValidation(
+      this.#labelInput,
+      this.#errorContainer,
+      this.#form,
+    )();
   }
 
   #initSecretCard() {
-    const card = document.querySelector(".secret");
+    const card = document.getElementById("secretCard");
     if (!card) return;
 
-    card
-      .querySelector(".secret-close")
-      ?.addEventListener("click", () => card.remove());
-
     const secretValue = document.getElementById("sv");
-
     const revealButton = document.getElementById("reveal");
-    revealButton?.addEventListener("click", () => {
-      const isBlurred = secretValue.classList.toggle("blurred");
-      revealButton.textContent = isBlurred ? "Show" : "Hide";
-    });
-
-    secretValue?.addEventListener("click", () => {
-      if (secretValue.classList.contains("blurred")) {
-        secretValue.classList.remove("blurred");
-        if (revealButton) revealButton.textContent = "Hide";
-      }
-    });
-
     const copyButton = document.getElementById("cp");
-    copyButton?.addEventListener("click", () => {
-      navigator.clipboard.writeText(secretValue.textContent).then(() => {
-        copyButton.textContent = "Copied";
-        setTimeout(() => (copyButton.textContent = "Copy"), 1500);
-      });
-    });
+    const dismissButton = card.querySelector(".secret-close");
+    const downloadButton = document.getElementById("dl-sxcu");
 
-    const dlButton = document.getElementById("dl-sxcu");
-    dlButton?.addEventListener("click", () => {
-      const tokenId = dlButton.dataset.tokenId;
-      const secret = secretValue.textContent;
+    const doDismiss = () => card.remove();
+    const doToggleBlur = () => {
+      const isBlurred = secretValue?.classList.toggle("blurred");
+      if (revealButton) revealButton.textContent = isBlurred ? "Show" : "Hide";
+    };
+    const doCopy = () => {
+      if (!secretValue) return;
+      navigator.clipboard.writeText(secretValue.textContent).then(() => {
+        if (copyButton) copyButton.textContent = "Copied";
+        setTimeout(() => {
+          if (copyButton) copyButton.textContent = "Copy";
+        }, 1500);
+      });
+    };
+    const doDownloadSxcu = (invoker) => {
+      const tokenId = invoker?.dataset?.tokenId || downloadButton?.dataset?.tokenId || "";
+      const secret = secretValue?.textContent || "";
       const requestUrl = window.location.origin + "/";
       const sxcu = {
         Version: "17.0.0",
@@ -270,145 +312,151 @@ class AdminDashboard {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    };
+
+    dismissButton?.addEventListener("click", doDismiss);
+    revealButton?.addEventListener("click", doToggleBlur);
+    copyButton?.addEventListener("click", doCopy);
+    downloadButton?.addEventListener("click", (e) => doDownloadSxcu(e.currentTarget));
+
+    card.addEventListener("command", (e) => {
+      if (e.command === "--dismiss") {
+        doDismiss();
+      } else if (e.command === "--toggle-blur") {
+        doToggleBlur();
+      } else if (e.command === "--copy") {
+        doCopy();
+      } else if (e.command === "--download-sxcu") {
+        doDownloadSxcu(_cmdInvoker(e));
+      }
+    });
+
+    secretValue?.addEventListener("click", () => {
+      if (secretValue.classList.contains("blurred")) {
+        secretValue.classList.remove("blurred");
+        if (revealButton) revealButton.textContent = "Hide";
+      }
     });
   }
 
   #initDeleteDialog() {
-    document.addEventListener("click", (e) => {
-      const button = e.target.closest("button[data-delete-id]");
-      if (!button) return;
-      const dialog = document.getElementById("dlg");
-      const form = document.getElementById("dlgForm");
-      const message = document.getElementById("dlgmsg");
-      if (!dialog || !form || !message) return;
+    const dialog = document.getElementById("dlg");
+    const form = document.getElementById("dlgForm");
+    const message = document.getElementById("dlgmsg");
+    if (!dialog || !form || !message) return;
 
-      const id = button.dataset.deleteId;
-      const isSelf = button.dataset.isSelf === "true";
+    dialog.addEventListener("command", (e) => {
+      if (e.command !== "show-modal") return;
+      const invoker = _cmdInvoker(e);
+      if (!invoker || !invoker.dataset.deleteId) return;
+
+      const id = invoker.dataset.deleteId;
+      const isSelf = invoker.dataset.isSelf === "true";
       if (isSelf) {
         message.textContent = `Delete your account (${id})? All your uploaded media will be permanently deleted and your access token will be removed.`;
       } else {
         message.textContent = `Delete token ${id}? All uploaded media for this token will be permanently deleted.`;
       }
       form.action = `/_/tokens/${id}/delete`;
-      dialog.showModal();
-    });
-
-    document.querySelectorAll("dialog#dlg [data-cancel]").forEach((btn) => {
-      btn.addEventListener("click", () => document.getElementById("dlg")?.close());
     });
   }
 
   #initPurgeDialog() {
-    document.addEventListener("click", (e) => {
-      const button = e.target.closest("button[data-purge-id]");
-      if (!button) return;
-      const dialog = document.getElementById("purgedlg");
-      const form = document.getElementById("purgeForm");
-      const message = document.getElementById("purgedlgmsg");
-      if (!dialog || !form || !message) return;
+    const dialog = document.getElementById("purgedlg");
+    const form = document.getElementById("purgeForm");
+    const message = document.getElementById("purgedlgmsg");
+    if (!dialog || !form || !message) return;
 
-      const id = button.dataset.purgeId;
+    dialog.addEventListener("command", (e) => {
+      if (e.command !== "show-modal") return;
+      const invoker = _cmdInvoker(e);
+      if (!invoker || !invoker.dataset.purgeId) return;
+
+      const id = invoker.dataset.purgeId;
       message.textContent = `Purge ALL uploaded media for token ${id}? All files will be permanently deleted from disk.`;
       form.action = `/_/tokens/${id}/purge-media`;
-      dialog.showModal();
-    });
-
-    document.querySelectorAll("dialog#purgedlg [data-cancel]").forEach((btn) => {
-      btn.addEventListener("click", () => document.getElementById("purgedlg")?.close());
     });
   }
 
   #initFileDeleteDialog() {
-    document.addEventListener("click", (e) => {
-      const button = e.target.closest("button[data-delete-filename]");
-      const modalBtn = e.target.closest("#modalDeleteBtn");
-      if (!button && !modalBtn) return;
+    const dialog = document.getElementById("filedel-dlg");
+    const input = document.getElementById("filedel-input");
+    const message = document.getElementById("filedel-msg");
+    if (!dialog || !input || !message) return;
 
-      const dialog = document.getElementById("filedel-dlg");
-      const input = document.getElementById("filedel-input");
-      const message = document.getElementById("filedel-msg");
-      if (!dialog || !input || !message) return;
+    dialog.addEventListener("command", (e) => {
+      if (e.command !== "show-modal") return;
+      const invoker = _cmdInvoker(e);
+      if (!invoker) return;
 
-      let filename = "";
-      if (button) {
-        filename = button.dataset.deleteFilename;
-      } else if (modalBtn) {
-        const modalDeleteFilename = document.getElementById("modalDeleteFilename");
+      let filename = invoker.dataset.deleteFilename;
+      if (!filename && invoker.id === "modalDeleteBtn") {
+        const modalDeleteFilename = document.getElementById(
+          "modalDeleteFilename",
+        );
         filename = modalDeleteFilename ? modalDeleteFilename.value : "";
       }
-
       if (!filename) return;
+
       input.value = filename;
       message.textContent = `Delete file "${filename}" permanently? It will be removed from disk.`;
-      dialog.showModal();
-    });
-
-    document.querySelectorAll("dialog#filedel-dlg [data-cancel]").forEach((btn) => {
-      btn.addEventListener("click", () => document.getElementById("filedel-dlg")?.close());
     });
   }
 
   #initRoleDialog() {
-    document.addEventListener("click", (e) => {
-      const button = e.target.closest("button[data-role-id]");
-      if (!button) return;
-      const dialog = document.getElementById("roledlg");
-      const form = document.getElementById("roleForm");
-      const targetInput = document.getElementById("roleTargetInput");
-      const message = document.getElementById("roledlgmsg");
-      if (!dialog || !form || !targetInput || !message) return;
+    const dialog = document.getElementById("roledlg");
+    const form = document.getElementById("roleForm");
+    const targetInput = document.getElementById("roleTargetInput");
+    const message = document.getElementById("roledlgmsg");
+    if (!dialog || !form || !targetInput || !message) return;
 
-      const id = button.dataset.roleId;
-      const targetRole = button.dataset.roleTarget;
-      const label = button.dataset.roleLabel;
+    dialog.addEventListener("command", (e) => {
+      if (e.command !== "show-modal") return;
+      const invoker = _cmdInvoker(e);
+      if (!invoker || !invoker.dataset.roleId) return;
+
+      const id = invoker.dataset.roleId;
+      const targetRole = invoker.dataset.roleTarget;
+      const label = invoker.dataset.roleLabel;
 
       targetInput.value = targetRole;
       message.textContent = `${label} for token ${id}?`;
       form.action = `/_/tokens/${id}/role`;
-      dialog.showModal();
-    });
-
-    document.querySelectorAll("dialog#roledlg [data-cancel]").forEach((btn) => {
-      btn.addEventListener("click", () => document.getElementById("roledlg")?.close());
     });
   }
 
   #initRenameDialog() {
+    const dialog = document.getElementById("renamedlg");
     const form = document.getElementById("renameForm");
     const input = document.getElementById("renameInput");
     const errorEl = document.getElementById("rename-err");
+    const target = document.getElementById("renameTarget");
 
     if (form && input) {
       this.#setupInPlaceLabelValidation(input, errorEl, form);
     }
 
-    document.addEventListener("click", (e) => {
-      const button = e.target.closest("button[data-rename-id]");
-      if (!button) return;
-      const dialog = document.getElementById("renamedlg");
-      const f = document.getElementById("renameForm");
-      const target = document.getElementById("renameTarget");
-      const inp = document.getElementById("renameInput");
-      const errEl = document.getElementById("rename-err");
-      if (!dialog || !f || !target || !inp) return;
+    dialog?.addEventListener("command", (e) => {
+      if (e.command !== "show-modal") return;
+      const invoker = _cmdInvoker(e);
+      if (!invoker || !invoker.dataset.renameId) return;
 
-      const id = button.dataset.renameId;
-      target.textContent = id;
-      inp.value = button.dataset.label || "";
-      inp.classList.remove("invalid");
-      if (errEl) errEl.hidden = true;
-      f.action = `/_/tokens/${id}/label`;
-      dialog.showModal();
-    });
-
-    document.querySelectorAll("dialog#renamedlg [data-cancel]").forEach((btn) => {
-      btn.addEventListener("click", () => document.getElementById("renamedlg")?.close());
+      const id = invoker.dataset.renameId;
+      if (target) target.textContent = id;
+      if (input) {
+        input.value = invoker.dataset.label || "";
+        input.classList.remove("invalid");
+      }
+      if (errorEl) errorEl.hidden = true;
+      if (form) form.action = `/_/tokens/${id}/label`;
     });
   }
 
   #initLimitsDialog() {
+    const dialog = document.getElementById("limdlg");
     const form = document.getElementById("limForm");
     const errorEl = document.getElementById("lim-err");
+    const target = document.getElementById("limTarget");
 
     if (form) {
       form.elements["bypass"]?.addEventListener("change", () =>
@@ -416,30 +464,32 @@ class AdminDashboard {
       );
     }
 
-    document.addEventListener("click", (e) => {
-      const button = e.target.closest("button[data-limit-id]");
-      if (!button) return;
-      const dialog = document.getElementById("limdlg");
-      const f = document.getElementById("limForm");
-      const target = document.getElementById("limTarget");
-      if (!dialog || !f || !target) return;
+    dialog?.addEventListener("command", (e) => {
+      if (e.command !== "show-modal") return;
+      const invoker = _cmdInvoker(e);
+      if (!invoker || !invoker.dataset.limitId) return;
 
-      const id = button.dataset.limitId;
-      target.textContent = id;
-      f.action = `/_/tokens/${id}/limits`;
-      if (f.elements["max_bytes"]) f.elements["max_bytes"].value = button.dataset.maxBytes || "";
-      if (f.elements["max_uploads"]) f.elements["max_uploads"].value = button.dataset.maxUploads || "";
-      if (f.elements["monthly_bytes"]) f.elements["monthly_bytes"].value = button.dataset.monthlyBytes || "";
-      if (f.elements["monthly_uploads"]) f.elements["monthly_uploads"].value = button.dataset.monthlyUploads || "";
-      if (f.elements["invites"]) f.elements["invites"].value = button.dataset.invites || "";
-      if (f.elements["bypass"]) f.elements["bypass"].checked = button.dataset.bypass === "1";
-      this.#resetQuotaForm(f, errorEl);
-      this.#applyExemptState(f, errorEl);
-      dialog.showModal();
-    });
-
-    document.querySelectorAll("dialog#limdlg [data-cancel]").forEach((btn) => {
-      btn.addEventListener("click", () => document.getElementById("limdlg")?.close());
+      const id = invoker.dataset.limitId;
+      if (target) target.textContent = id;
+      if (form) {
+        form.action = `/_/tokens/${id}/limits`;
+        if (form.elements["max_bytes"])
+          form.elements["max_bytes"].value = invoker.dataset.maxBytes || "";
+        if (form.elements["max_uploads"])
+          form.elements["max_uploads"].value = invoker.dataset.maxUploads || "";
+        if (form.elements["monthly_bytes"])
+          form.elements["monthly_bytes"].value =
+            invoker.dataset.monthlyBytes || "";
+        if (form.elements["monthly_uploads"])
+          form.elements["monthly_uploads"].value =
+            invoker.dataset.monthlyUploads || "";
+        if (form.elements["invites"])
+          form.elements["invites"].value = invoker.dataset.invites || "";
+        if (form.elements["bypass"])
+          form.elements["bypass"].checked = invoker.dataset.bypass === "1";
+        this.#resetQuotaForm(form, errorEl);
+        this.#applyExemptState(form, errorEl);
+      }
     });
   }
 
@@ -515,10 +565,6 @@ class AdminDashboard {
   }
 
   #initGiveawayDialog() {
-    const dialog = document.getElementById("giveawaydlg");
-    const button = document.getElementById("giveawayBtn");
-    if (!dialog || !button) return;
-
     const modeSelect = document.getElementById("giveawayMode");
     const poolGroup = document.getElementById("giveawayPoolGroup");
 
@@ -527,14 +573,6 @@ class AdminDashboard {
         poolGroup.hidden = modeSelect.value !== "random";
       });
     }
-
-    button.addEventListener("click", () => {
-      dialog.showModal();
-    });
-
-    dialog.querySelector("[data-cancel]")?.addEventListener("click", () => {
-      dialog.close();
-    });
   }
 
   #initInvitePolicyForm() {
@@ -552,11 +590,17 @@ class AdminDashboard {
     const searchInput = document.getElementById("searchInput");
     const searchClear = document.getElementById("searchClear");
 
-    if (searchClear) {
-      searchClear.addEventListener("click", () => {
-        window.location.href = window.location.pathname;
-      });
-    }
+    const doClear = () => {
+      window.location.href = window.location.pathname;
+    };
+
+    searchClear?.addEventListener("click", doClear);
+
+    searchForm?.addEventListener("command", (e) => {
+      if (e.command === "--clear-search") {
+        doClear();
+      }
+    });
 
     if (searchForm && searchInput) {
       searchForm.addEventListener("submit", (e) => {

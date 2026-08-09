@@ -62,6 +62,12 @@
     }
 }
 
+body:has(dialog.lightbox-dialog[open]) {
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+}
+
 body {
     font-family: system-ui, -apple-system, sans-serif;
     max-width: 1060px;

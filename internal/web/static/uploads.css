@@ -183,6 +183,22 @@
     border: 1px solid var(--border-color-opts);
     cursor: pointer;
     transition: border-color 0.15s ease;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    appearance: none;
+    color: inherit;
+    font: inherit;
+    outline: none;
+
+    &:focus {
+        outline: none;
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--focus-ring);
+        outline-offset: 1px;
+    }
 }
 
 .file-preview:hover {
@@ -372,7 +388,15 @@ span.pager-btn[disabled] {
     max-height: 90vh;
     box-shadow: var(--shadow-modal);
     box-sizing: border-box;
-    position: relative;
+    outline: none;
+    overscroll-behavior: contain;
+    user-select: none;
+    -webkit-user-select: none;
+
+    &:focus,
+    &:focus-visible {
+        outline: none;
+    }
 
     &::backdrop {
         background: var(--backdrop-bg);
@@ -443,9 +467,12 @@ span.pager-btn[disabled] {
     max-height: 65vh;
     object-fit: contain;
     border-radius: 6px;
-    border: 1px solid var(--border-color-opts);
+    border: none;
+    outline: none;
     touch-action: pinch-zoom;
     transition: opacity 0.15s ease;
+    -webkit-user-drag: none;
+    user-select: none;
 }
 
 .lightbox-video {
