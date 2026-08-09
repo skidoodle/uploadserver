@@ -190,6 +190,20 @@ func TestAdminCreateTokenThenUpload(t *testing.T) {
 	}
 }
 
+func TestAdminJSONRejectsUnknownAndTrailingData(t *testing.T) {
+	_, h, admin := newTestServer(t)
+	for _, body := range []string{
+		`{"label":"valid","role":"upload","unexpected":true}`,
+		`{"label":"valid","role":"upload"} {"label":"second"}`,
+		`{"label":`,
+	} {
+		rec := adminReq(t, h, http.MethodPost, "/_/api/tokens", admin, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("body %q: status = %d, want 400", body, rec.Code)
+		}
+	}
+}
+
 func TestAdminRequiresAdminRole(t *testing.T) {
 	_, h, _ := newTestServer(t)
 	if rec := adminReq(t, h, "GET", "/_/api/tokens", "", ""); rec.Code != http.StatusUnauthorized {
@@ -257,10 +271,21 @@ func TestAdminCannotDeleteRoot(t *testing.T) {
 			rootID = r.ID
 		}
 	}
-	// Another admin tries to delete root; blocked (409).
+	rootMedia := filepath.Join(dir, rootID, "keep.txt")
+	if err := os.MkdirAll(filepath.Dir(rootMedia), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rootMedia, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Another admin tries to delete root; blocked without purging its media.
 	rec := adminReq(t, h, "DELETE", "/_/api/tokens/"+rootID, adminSecret, "")
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("admin deleting root: status %d, want 409", rec.Code)
+	}
+	if _, err := os.Stat(rootMedia); err != nil {
+		t.Fatalf("rejected root deletion purged media: %v", err)
 	}
 	// Admins also can't mint a root via the API (403).
 	cr := adminReq(t, h, "POST", "/_/api/tokens", adminSecret, `{"label":"x","role":"root"}`)
@@ -533,7 +558,9 @@ func TestUploadJSONResponse(t *testing.T) {
 // The admin token lives in a cookie, so it must only carry the Secure flag when
 // the request is actually on HTTPS, otherwise plain-HTTP/local runs would break.
 func TestSessionCookieSecureFlag(t *testing.T) {
-	_, h, _ := newTestServer(t)
+	srv, _, _ := newTestServer(t)
+	srv.cfg.TrustProxyHeaders = true
+	h := srv.routes()
 
 	plain := httptest.NewRecorder()
 	h.ServeHTTP(plain, httptest.NewRequest("GET", "/", nil))
@@ -724,11 +751,12 @@ func TestInviteSystem(t *testing.T) {
 	id, secret := createUploadToken(t, h, admin, "userone")
 
 	// 1. Initially userone has 0 invites, so /_/tokens/invite should fail
-	form := url.Values{"label": []string{"friend1"}, "_csrf": []string{"test"}}
+	userCSRF := generateCSRF(secret)
+	form := url.Values{"label": []string{"friend1"}, "_csrf": []string{userCSRF}}
 	req := httptest.NewRequest("POST", "/_/tokens/invite", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: userCSRF})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -754,10 +782,12 @@ func TestInviteSystem(t *testing.T) {
 	}
 
 	// 5. Admin can also create tokens via /_/tokens/invite without decrements
-	adminReq := httptest.NewRequest("POST", "/_/tokens/invite", strings.NewReader(form.Encode()))
+	adminCSRF := generateCSRF(admin)
+	adminForm := url.Values{"label": []string{"friend2"}, "_csrf": []string{adminCSRF}}
+	adminReq := httptest.NewRequest("POST", "/_/tokens/invite", strings.NewReader(adminForm.Encode()))
 	adminReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	adminReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: admin})
-	adminReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	adminReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: adminCSRF})
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, adminReq)
 	if rec.Code != http.StatusSeeOther {
@@ -770,11 +800,12 @@ func TestTokenRename(t *testing.T) {
 	id, secret := createUploadToken(t, h, admin, "oldname")
 
 	// 1. User can rename their own token via POST /_/tokens/{id}/label
-	form := url.Values{"label": []string{"newname"}, "_csrf": []string{"test"}}
+	csrf := generateCSRF(secret)
+	form := url.Values{"label": []string{"newname"}, "_csrf": []string{csrf}}
 	req := httptest.NewRequest("POST", "/_/tokens/"+id+"/label", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -790,7 +821,7 @@ func TestTokenRename(t *testing.T) {
 	otherReq := httptest.NewRequest("POST", "/_/tokens/otherid/label", strings.NewReader(form.Encode()))
 	otherReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	otherReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: secret})
-	otherReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	otherReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, otherReq)
 	if rec.Code != http.StatusForbidden {
@@ -868,11 +899,12 @@ func TestGiveawayInvites(t *testing.T) {
 	// 1. SSR Giveaway: grant +3 invites to all uploaders
 	form := url.Values{}
 	form.Set("count", "3")
-	form.Set("_csrf", "test")
+	csrf := generateCSRF(adminSecret)
+	form.Set("_csrf", csrf)
 	req := httptest.NewRequest("POST", "/_/tokens/giveaway", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -938,11 +970,12 @@ func TestTokenPromotionDemotion(t *testing.T) {
 	h := srv.routes()
 
 	// 1. Non-root admin tries to promote uploader to admin -> fails (redirect to dashboard with error or forbidden)
-	form := url.Values{"role": []string{"admin"}, "_csrf": []string{"test"}}
+	adminCSRF := generateCSRF(adminSecret)
+	form := url.Values{"role": []string{"admin"}, "_csrf": []string{adminCSRF}}
 	req := httptest.NewRequest("POST", "/_/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: adminCSRF})
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusSeeOther {
@@ -955,10 +988,12 @@ func TestTokenPromotionDemotion(t *testing.T) {
 	}
 
 	// 2. Root tries to promote uploader to admin -> succeeds
-	reqRoot := httptest.NewRequest("POST", "/_/tokens/"+uploadID+"/role", strings.NewReader(form.Encode()))
+	rootCSRF := generateCSRF(rootSecret)
+	rootForm := url.Values{"role": []string{"admin"}, "_csrf": []string{rootCSRF}}
+	reqRoot := httptest.NewRequest("POST", "/_/tokens/"+uploadID+"/role", strings.NewReader(rootForm.Encode()))
 	reqRoot.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqRoot.AddCookie(&http.Cookie{Name: adminCookieName, Value: rootSecret})
-	reqRoot.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "test"})
+	reqRoot.AddCookie(&http.Cookie{Name: csrfCookieName, Value: rootCSRF})
 	recRoot := httptest.NewRecorder()
 	h.ServeHTTP(recRoot, reqRoot)
 	if recRoot.Code != http.StatusSeeOther {
@@ -1121,7 +1156,7 @@ func TestAdminUserProfilePage(t *testing.T) {
 
 func TestMediaManagement_ServeHeaderAndDeletion(t *testing.T) {
 	srv, h, adminSecret := newTestServer(t)
-	uploaderID, uploaderSecret := createUploadToken(t, h, adminSecret, "mediausr")
+	_, uploaderSecret := createUploadToken(t, h, adminSecret, "mediausr")
 
 	// 1. Upload a file as uploader
 	rec := upload(t, h, uploaderSecret, "file", "testimage.png", "image data")
@@ -1131,15 +1166,18 @@ func TestMediaManagement_ServeHeaderAndDeletion(t *testing.T) {
 	fileURL := rec.Body.String()
 	filename := fileURL[strings.LastIndexByte(fileURL, '/')+1:]
 
-	// 2. GET request to serve handler verifies X-Upload-Owner header
+	// 2. GET request serves the upload without exposing its owner
 	reqServe := httptest.NewRequest("GET", "/"+filename, nil)
 	recServe := httptest.NewRecorder()
 	h.ServeHTTP(recServe, reqServe)
 	if recServe.Code != http.StatusOK {
 		t.Fatalf("GET /%s status = %d, want 200", filename, recServe.Code)
 	}
-	if owner := recServe.Header().Get("X-Owner"); owner != uploaderID {
-		t.Errorf("X-Owner header = %q, want %q", owner, uploaderID)
+	if owner := recServe.Header().Get("X-Owner"); owner != "" {
+		t.Errorf("X-Owner header leaked owner %q", owner)
+	}
+	if recServe.Header().Get("Content-Security-Policy") == "" {
+		t.Error("served upload is missing a sandbox CSP")
 	}
 
 	// 3. DELETE /{filename} unauthenticated -> 401
@@ -1172,6 +1210,24 @@ func TestMediaManagement_ServeHeaderAndDeletion(t *testing.T) {
 	// Verify file is gone from fileIndex and disk
 	if srv.fileIndex.Owner(filename) != "" {
 		t.Errorf("filename %s still in fileIndex after deletion", filename)
+	}
+}
+
+func TestDangerousUploadServedAsAttachment(t *testing.T) {
+	_, h, secret := newTestServer(t)
+	uploaded := upload(t, h, secret, "file", "page.html", "<script>alert(1)</script>")
+	if uploaded.Code != http.StatusOK {
+		t.Fatalf("upload status = %d", uploaded.Code)
+	}
+	name := strings.TrimSpace(uploaded.Body.String())
+	name = name[strings.LastIndexByte(name, '/')+1:]
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/"+name, nil))
+	if rec.Header().Get("Content-Disposition") != "attachment" {
+		t.Errorf("Content-Disposition = %q, want attachment", rec.Header().Get("Content-Disposition"))
+	}
+	if !strings.Contains(rec.Header().Get("Content-Security-Policy"), "sandbox") {
+		t.Errorf("upload CSP = %q, want sandbox", rec.Header().Get("Content-Security-Policy"))
 	}
 }
 
@@ -1282,6 +1338,7 @@ func TestUploadUserSelfService(t *testing.T) {
 
 	// 1. Create an upload role token
 	uploaderID, uploaderSecret := createUploadToken(t, h, adminSecret, "selfusr")
+	csrf := generateCSRF(uploaderSecret)
 
 	// 2. Upload user can view their OWN profile page /_/user/{id}
 	reqProf := httptest.NewRequest("GET", "/_/user/"+uploaderID, nil)
@@ -1293,10 +1350,10 @@ func TestUploadUserSelfService(t *testing.T) {
 	}
 
 	// 3. Upload user can rename their OWN label
-	reqRename := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/label", strings.NewReader("label=newname&_csrf=dummy"))
+	reqRename := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/label", strings.NewReader("label=newname&_csrf="+url.QueryEscape(csrf)))
 	reqRename.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqRename.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
-	reqRename.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	reqRename.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	recRename := httptest.NewRecorder()
 	h.ServeHTTP(recRename, reqRename)
 	if recRename.Code != http.StatusSeeOther {
@@ -1312,10 +1369,10 @@ func TestUploadUserSelfService(t *testing.T) {
 	fileURL := upRec.Body.String()
 	filename := fileURL[strings.LastIndexByte(fileURL, '/')+1:]
 
-	reqDelFile := httptest.NewRequest("POST", "/_/files/delete", strings.NewReader("filename="+filename+"&_csrf=dummy"))
+	reqDelFile := httptest.NewRequest("POST", "/_/files/delete", strings.NewReader("filename="+filename+"&_csrf="+url.QueryEscape(csrf)))
 	reqDelFile.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqDelFile.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
-	reqDelFile.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	reqDelFile.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	recDelFile := httptest.NewRecorder()
 	h.ServeHTTP(recDelFile, reqDelFile)
 	if recDelFile.Code != http.StatusSeeOther {
@@ -1329,10 +1386,10 @@ func TestUploadUserSelfService(t *testing.T) {
 	_ = upload(t, h, uploaderSecret, "file", "purge1.txt", "data1")
 	_ = upload(t, h, uploaderSecret, "file", "purge2.txt", "data2")
 
-	reqPurge := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/purge-media", strings.NewReader("_csrf=dummy"))
+	reqPurge := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/purge-media", strings.NewReader("_csrf="+url.QueryEscape(csrf)))
 	reqPurge.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqPurge.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
-	reqPurge.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	reqPurge.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	recPurge := httptest.NewRecorder()
 	h.ServeHTTP(recPurge, reqPurge)
 	if recPurge.Code != http.StatusSeeOther {
@@ -1340,10 +1397,10 @@ func TestUploadUserSelfService(t *testing.T) {
 	}
 
 	// 6. Upload user can delete their OWN account via SSR form
-	reqDelAcc := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/delete", strings.NewReader("_csrf=dummy"))
+	reqDelAcc := httptest.NewRequest("POST", "/_/tokens/"+uploaderID+"/delete", strings.NewReader("_csrf="+url.QueryEscape(csrf)))
 	reqDelAcc.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	reqDelAcc.AddCookie(&http.Cookie{Name: adminCookieName, Value: uploaderSecret})
-	reqDelAcc.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "dummy"})
+	reqDelAcc.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
 	recDelAcc := httptest.NewRecorder()
 	h.ServeHTTP(recDelAcc, reqDelAcc)
 	if recDelAcc.Code != http.StatusSeeOther {

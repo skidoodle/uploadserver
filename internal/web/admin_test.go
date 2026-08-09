@@ -65,8 +65,8 @@ func TestIsSafeRedirectTarget(t *testing.T) {
 }
 
 func TestCSRFGenerationAndValidation(t *testing.T) {
-	csrf1 := generateCSRF()
-	csrf2 := generateCSRF()
+	csrf1 := generateCSRF("")
+	csrf2 := generateCSRF("")
 
 	if len(csrf1) != 32 {
 		t.Errorf("generateCSRF length = %d; want 32 hex chars", len(csrf1))
@@ -91,5 +91,21 @@ func TestCSRFGenerationAndValidation(t *testing.T) {
 
 	if validateCSRF(rMismatch) {
 		t.Error("validateCSRF succeeded on mismatched tokens")
+	}
+
+	bound := generateCSRF("session-a")
+	boundReq := httptest.NewRequest("POST", "/_/tokens/create", nil)
+	boundReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: "session-a"})
+	boundReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: bound})
+	boundReq.Form = url.Values{"_csrf": []string{bound}}
+	if !validateCSRF(boundReq) {
+		t.Error("validateCSRF rejected token bound to the current session")
+	}
+	boundReq = httptest.NewRequest("POST", "/_/tokens/create", nil)
+	boundReq.AddCookie(&http.Cookie{Name: adminCookieName, Value: "session-b"})
+	boundReq.AddCookie(&http.Cookie{Name: csrfCookieName, Value: bound})
+	boundReq.Form = url.Values{"_csrf": []string{bound}}
+	if validateCSRF(boundReq) {
+		t.Error("validateCSRF accepted a token bound to another session")
 	}
 }

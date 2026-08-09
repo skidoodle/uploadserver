@@ -4,6 +4,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
@@ -11,7 +12,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 	envVars := []string{
 		"LISTEN_ADDR", "UPLOAD_DIR", "BASE_URL", "UPLOAD_FIELD",
 		"TOKEN_STORE", "ENABLE_ADMIN", "STRIP_EXTENSION", "SERVE_FILES",
-		"RANDOM_NAME_LENGTH", "MAX_UPLOAD_BYTES",
+		"RANDOM_NAME_LENGTH", "MAX_UPLOAD_BYTES", "TRUST_PROXY_HEADERS", "REQUEST_TIMEOUT",
 	}
 	for _, v := range envVars {
 		_ = os.Unsetenv(v)
@@ -46,6 +47,12 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.ServeFiles {
 		t.Errorf("cfg.ServeFiles = true; want false")
 	}
+	if cfg.TrustProxyHeaders {
+		t.Errorf("cfg.TrustProxyHeaders = true; want false")
+	}
+	if cfg.RequestTimeout != 30*time.Second {
+		t.Errorf("cfg.RequestTimeout = %s; want 30s", cfg.RequestTimeout)
+	}
 }
 
 func TestLoadConfigCustomEnv(t *testing.T) {
@@ -57,6 +64,8 @@ func TestLoadConfigCustomEnv(t *testing.T) {
 	t.Setenv("ENABLE_ADMIN", "false")
 	t.Setenv("STRIP_EXTENSION", "true")
 	t.Setenv("SERVE_FILES", "true")
+	t.Setenv("TRUST_PROXY_HEADERS", "true")
+	t.Setenv("REQUEST_TIMEOUT", "45s")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -86,6 +95,19 @@ func TestLoadConfigCustomEnv(t *testing.T) {
 	}
 	if !cfg.ServeFiles {
 		t.Errorf("cfg.ServeFiles = false; want true")
+	}
+	if !cfg.TrustProxyHeaders {
+		t.Errorf("cfg.TrustProxyHeaders = false; want true")
+	}
+	if cfg.RequestTimeout != 45*time.Second {
+		t.Errorf("cfg.RequestTimeout = %s; want 45s", cfg.RequestTimeout)
+	}
+}
+
+func TestLoadConfigInvalidRequestTimeout(t *testing.T) {
+	t.Setenv("REQUEST_TIMEOUT", "0s")
+	if _, err := LoadConfig(); err == nil {
+		t.Error("LoadConfig() expected error for invalid REQUEST_TIMEOUT")
 	}
 }
 

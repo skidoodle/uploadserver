@@ -36,10 +36,10 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Reject keys that have already exhausted a quota, and learn how many bytes
 	// this upload may still write (the server-wide cap, tightened by whatever
 	// storage budget the token has left).
-	budget, err := s.store.AllowUpload(rec.ID, cfg.MaxBytes)
+	reservation, budget, err := s.store.ReserveUpload(rec.ID, cfg.MaxBytes)
 	switch {
 	case errors.Is(err, internal.ErrQuotaUploads), errors.Is(err, internal.ErrQuotaBytes):
-		slog.Warn("quota limits hit", "id", rec.ID, "error", err, "ip", clientIP(r))
+		slog.Warn("quota limits hit", "id", rec.ID, "error", err, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 		httpError(w, http.StatusTooManyRequests, err.Error())
 		return
 	case errors.Is(err, internal.ErrNotFound):
@@ -47,11 +47,12 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	case err != nil:
-		slog.Error("quota check failed", "id", rec.ID, "error", err, "ip", clientIP(r))
+		slog.Error("quota check failed", "id", rec.ID, "error", err, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 		httpError(w, http.StatusInternalServerError, "could not check quota")
 		return
 	}
 	quotaLimited := budget < cfg.MaxBytes
+	defer s.store.CancelUpload(rec.ID, reservation)
 
 	// Hard cap on the request body before touching the multipart parser.
 	r.Body = http.MaxBytesReader(w, r.Body, budget)
@@ -75,20 +76,26 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	case err != nil:
-		slog.Error("save upload error", "error", err, "id", rec.ID, "ip", clientIP(r))
+		slog.Error("save upload error", "error", err, "id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 		httpError(w, http.StatusInternalServerError, "could not store upload")
 		return
 	}
 
-	if err := s.store.RecordUpload(rec.ID, n); err != nil {
-		slog.Error("record usage error", "id", rec.ID, "error", err)
+	entry := internal.UploadEntry{Name: name, Size: n, UploadedAt: time.Now().UTC()}
+	if err := s.store.CommitUpload(rec.ID, reservation, entry); err != nil {
+		disk := filepath.Join(cfg.Dir, rec.ID, name)
+		if removeErr := os.Remove(disk); removeErr != nil && !os.IsNotExist(removeErr) {
+			slog.Error("remove uncommitted upload error", "id", rec.ID, "name", name, "error", removeErr)
+		}
+		slog.Error("commit upload error", "id", rec.ID, "error", err)
+		if errors.Is(err, internal.ErrNotFound) {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="upload"`)
+			httpError(w, http.StatusUnauthorized, "unauthorized")
+		} else {
+			httpError(w, http.StatusInternalServerError, "could not commit upload")
+		}
+		return
 	}
-
-	_ = s.store.RecordUploadEntry(rec.ID, internal.UploadEntry{
-		Name:       name,
-		Size:       n,
-		UploadedAt: time.Now().UTC(),
-	})
 
 	if s.fileIndex != nil {
 		s.fileIndex.Add(name, rec.ID)
@@ -100,7 +107,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		"size", n,
 		"id", internal.SanitizeLog(rec.ID),
 		"label", internal.SanitizeLog(rec.Label),
-		"ip", internal.SanitizeLog(clientIP(r)),
+		"ip", internal.SanitizeLog(clientIP(r, s.cfg.TrustProxyHeaders)),
 	)
 
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
@@ -164,7 +171,6 @@ func savePart(cfg internal.Config, mr *multipart.Reader, tokenID string) (name s
 		}
 		if err = os.Rename(tmpName, filepath.Join(userDir, name)); err != nil { // #nosec G703 -- name is a generated hex string with validated extension
 			_ = os.Remove(tmpName)
-			_ = os.Remove(tmpName)
 			return "", 0, err
 		}
 		return name, n, nil
@@ -177,7 +183,7 @@ func publicURL(cfg internal.Config, r *http.Request, name string) string {
 	base := cfg.BaseURL
 	if base == "" {
 		scheme := "http"
-		if requestIsHTTPS(r) {
+		if requestIsHTTPS(r, cfg.TrustProxyHeaders) {
 			scheme = "https"
 		}
 		base = scheme + "://" + r.Host

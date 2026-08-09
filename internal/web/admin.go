@@ -1,23 +1,27 @@
 package web
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"uploadserver/internal"
 )
+
+var tokenIDRe = regexp.MustCompile(`^[0-9a-f]{8}$`)
 
 const (
 	adminCookieName = "admin_token"
@@ -31,40 +35,53 @@ const (
 // the bearer secret never rides a plaintext connection. On plain HTTP (local
 // runs without a TLS proxy) Secure stays off so the cookie still works. maxAge
 // follows net/http semantics: 0 means a session cookie, negative deletes it.
-func setCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAge int) {
+func (s *server) setCookie(w http.ResponseWriter, r *http.Request, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{ // #nosec G124 -- Secure flag dynamically toggles based on HTTPS request state
 		Name:     name,
 		Value:    value,
 		Path:     "/",
 		MaxAge:   maxAge,
 		HttpOnly: true,
-		Secure:   requestIsHTTPS(r),
+		Secure:   requestIsHTTPS(r, s.cfg.TrustProxyHeaders),
 		SameSite: http.SameSiteStrictMode,
 	})
 }
 
 // clearCookie clears the cookie with the given name
-func clearCookie(w http.ResponseWriter, r *http.Request, name string) {
-	setCookie(w, r, name, "", -1)
+func (s *server) clearCookie(w http.ResponseWriter, r *http.Request, name string) {
+	s.setCookie(w, r, name, "", -1)
 }
 
 // setAdminCookie sets the admin cookie with the given secret
-func setAdminCookie(w http.ResponseWriter, r *http.Request, secret string) {
-	setCookie(w, r, adminCookieName, secret, 0)
+func (s *server) setAdminCookie(w http.ResponseWriter, r *http.Request, secret string) {
+	s.setCookie(w, r, adminCookieName, secret, 0)
 }
 
 // setCSRFCookie sets the CSRF cookie with the given token
-func setCSRFCookie(w http.ResponseWriter, r *http.Request, token string) {
-	setCookie(w, r, csrfCookieName, token, 0)
+func (s *server) setCSRFCookie(w http.ResponseWriter, r *http.Request, token string) {
+	s.setCookie(w, r, csrfCookieName, token, 0)
 }
 
 // generateCSRF generates a random CSRF token
-func generateCSRF() string {
+func generateCSRF(sessionSecret string) string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic("crypto/rand: " + err.Error())
 	}
-	return hex.EncodeToString(b[:])
+	nonce := hex.EncodeToString(b[:])
+	if sessionSecret == "" {
+		return nonce
+	}
+	mac := hmac.New(sha256.New, []byte(sessionSecret))
+	_, _ = mac.Write([]byte(nonce))
+	return nonce + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+func csrfForRequest(r *http.Request) string {
+	if cookie, err := r.Cookie(adminCookieName); err == nil {
+		return generateCSRF(cookie.Value)
+	}
+	return generateCSRF("")
 }
 
 // validateCSRF enforces the double-submit pattern: the token in the form body
@@ -75,10 +92,21 @@ func validateCSRF(r *http.Request) bool {
 		return false
 	}
 	form := r.FormValue("_csrf")
-	if form == "" {
+	if form == "" || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(form)) != 1 {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(form)) == 1
+	admin, err := r.Cookie(adminCookieName)
+	if err != nil || admin.Value == "" {
+		return !strings.Contains(cookie.Value, ".")
+	}
+	nonce, signature, ok := strings.Cut(cookie.Value, ".")
+	if !ok {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(admin.Value))
+	_, _ = mac.Write([]byte(nonce))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return subtle.ConstantTimeCompare([]byte(signature), []byte(expected)) == 1
 }
 
 // renderAdmin renders the admin page with the given data
@@ -86,53 +114,66 @@ func (s *server) renderAdmin(w http.ResponseWriter, data adminPageData) {
 	renderTemplate(w, adminTmpl, data)
 }
 
-// requireAdminCookie gates the SSR mutation handlers. It returns true only when
-// the cookie holds a valid admin token; otherwise it redirects and returns false.
-func (s *server) requireAdminCookie(w http.ResponseWriter, r *http.Request) bool {
+// requireSession resolves the current cookie session once and returns its token
+// record. Expired sessions clear all session-bound state.
+func (s *server) requireSession(w http.ResponseWriter, r *http.Request) (internal.TokenRecord, bool) {
 	c, err := r.Cookie(adminCookieName)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return false
-	}
-	rec, ok := s.store.Authenticate(c.Value)
-	if !ok || !internal.IsAdmin(rec.Role) {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
-		return false
-	}
-	return true
-}
-
-// requireRootCookie gates the SSR mutation handlers that only the root user is allowed to execute.
-func (s *server) requireRootCookie(w http.ResponseWriter, r *http.Request) bool {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return false
+		return internal.TokenRecord{}, false
 	}
 	rec, ok := s.store.Authenticate(c.Value)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
-		return false
+		s.clearSessionCookies(w, r)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return internal.TokenRecord{}, false
+	}
+	return rec, true
+}
+
+// requireAdminCookie gates admin-only SSR handlers and returns the actor record.
+func (s *server) requireAdminCookie(w http.ResponseWriter, r *http.Request) (internal.TokenRecord, bool) {
+	rec, ok := s.requireSession(w, r)
+	if !ok {
+		return internal.TokenRecord{}, false
+	}
+	if !internal.IsAdmin(rec.Role) {
+		s.redirectWithError(w, r, "forbidden: admin token required")
+		return internal.TokenRecord{}, false
+	}
+	return rec, true
+}
+
+// requireRootCookie gates root-only SSR handlers and returns the actor record.
+func (s *server) requireRootCookie(w http.ResponseWriter, r *http.Request) (internal.TokenRecord, bool) {
+	rec, ok := s.requireSession(w, r)
+	if !ok {
+		return internal.TokenRecord{}, false
 	}
 	if rec.Role != internal.RoleRoot {
-		redirectWithError(w, r, "forbidden: root token required")
-		return false
+		s.redirectWithError(w, r, "forbidden: root token required")
+		return internal.TokenRecord{}, false
 	}
-	return true
+	return rec, true
+}
+
+func (s *server) clearSessionCookies(w http.ResponseWriter, r *http.Request) {
+	for _, name := range []string{adminCookieName, csrfCookieName, flashSecretName, flashErrorName} {
+		s.clearCookie(w, r, name)
+	}
 }
 
 // handleAdminPage renders the login screen or the dashboard, and shows any
 // one-shot flash message left by the previous request.
 func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
-	csrf := generateCSRF()
-	setCSRFCookie(w, r, csrf)
+	csrf := csrfForRequest(r)
+	s.setCSRFCookie(w, r, csrf)
 
 	data := adminPageData{
 		CSRF:      csrf,
 		InvPolicy: s.store.InvitePolicy(),
 	}
+	sessionExpired := false
 
 	if c, err := r.Cookie(adminCookieName); err == nil {
 		if rec, ok := s.store.Authenticate(c.Value); ok {
@@ -152,14 +193,18 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 				data.Global = s.store.GlobalLimits()
 			}
 		} else {
-			clearCookie(w, r, adminCookieName)
+			sessionExpired = true
+			s.clearSessionCookies(w, r)
+			csrf = generateCSRF("")
+			s.setCSRFCookie(w, r, csrf)
+			data.CSRF = csrf
 			data.Error = "session expired, please log in again"
 		}
 	}
 
 	// Flash cookies are read once and immediately expired.
-	if c, err := r.Cookie(flashSecretName); err == nil {
-		clearCookie(w, r, flashSecretName)
+	if c, err := r.Cookie(flashSecretName); !sessionExpired && err == nil {
+		s.clearCookie(w, r, flashSecretName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			var secretData newTokenSecret
 			if json.Unmarshal(decoded, &secretData) == nil {
@@ -167,25 +212,14 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if c, err := r.Cookie(flashErrorName); err == nil {
-		clearCookie(w, r, flashErrorName)
+	if c, err := r.Cookie(flashErrorName); !sessionExpired && err == nil {
+		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
 		}
 	}
 
 	s.renderAdmin(w, data)
-}
-
-// actorIDFromCookie extracts the actor ID from the admin cookie, if present.
-// It returns the actor ID if the cookie is valid, otherwise it returns an empty string.
-func (s *server) actorIDFromCookie(r *http.Request) string {
-	if c, err := r.Cookie(adminCookieName); err == nil {
-		if rec, ok := s.store.Authenticate(c.Value); ok {
-			return rec.ID
-		}
-	}
-	return ""
 }
 
 // roleActionName returns the human-readable action name for a role change.
@@ -210,48 +244,54 @@ func roleActionName(oldRole, newRole string) string {
 // and sends the user to the dashboard.
 func (s *server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	if !validateCSRF(r) {
-		slog.Warn("login failed", "reason", "invalid_csrf", "ip", clientIP(r))
-		redirectWithError(w, r, "invalid request")
+		slog.Warn("login failed", "reason", "invalid_csrf", "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 	token := r.FormValue("token")
 	if token == "" {
-		slog.Warn("login failed", "reason", "missing_token", "ip", clientIP(r))
-		redirectWithError(w, r, "token required")
+		slog.Warn("login failed", "reason", "missing_token", "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+		s.redirectWithError(w, r, "token required")
 		return
 	}
 	rec, ok := s.store.Authenticate(token)
 	if !ok {
-		slog.Warn("login failed", "reason", "invalid_token", "ip", clientIP(r))
-		redirectWithError(w, r, "invalid token")
+		slog.Warn("login failed", "reason", "invalid_token", "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+		s.redirectWithError(w, r, "invalid token")
 		return
 	}
-	setAdminCookie(w, r, token)
-	slog.Info("login succeeded", "id", rec.ID, "label", internal.SanitizeLog(rec.Label), "ip", clientIP(r))
+	s.setAdminCookie(w, r, token)
+	s.setCSRFCookie(w, r, generateCSRF(token))
+	s.clearCookie(w, r, flashErrorName)
+	slog.Info("login succeeded", "id", rec.ID, "label", internal.SanitizeLog(rec.Label), "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
 // handleAdminLogout clears the admin cookie and redirects the user to the login page.
 // It validates the CSRF token and then clears the admin cookie before redirecting.
 func (s *server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
-	actorID := s.actorIDFromCookie(r)
+	actor, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
 	if !validateCSRF(r) {
 		redirect(w, r)
 		return
 	}
-	clearCookie(w, r, adminCookieName)
-	slog.Info("logout", "id", actorID, "ip", clientIP(r))
+	s.clearSessionCookies(w, r)
+	slog.Info("logout", "id", actor.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
 // handleAdminCreateTokenSSR mints a token and stashes its one-time secret in a
 // flash cookie so the dashboard can show it exactly once after the redirect.
 func (s *server) handleAdminCreateTokenSSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminCookie(w, r) {
+	actor, ok := s.requireAdminCookie(w, r)
+	if !ok {
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
@@ -261,14 +301,14 @@ func (s *server) handleAdminCreateTokenSSR(w http.ResponseWriter, r *http.Reques
 		role = internal.RoleUpload
 	}
 	if role == internal.RoleRoot {
-		redirectWithError(w, r, "root tokens are generated only on first run")
+		s.redirectWithError(w, r, "root tokens are generated only on first run")
 		return
 	}
 
-	actorID := s.actorIDFromCookie(r)
+	actorID := actor.ID
 	id, secret, err := s.store.Add(label, role)
 	if err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 
@@ -276,10 +316,10 @@ func (s *server) handleAdminCreateTokenSSR(w http.ResponseWriter, r *http.Reques
 	if internal.IsAdmin(role) {
 		actionMsg = "admin token creation"
 	}
-	slog.Info(actionMsg, "id", id, "label", internal.SanitizeLog(label), "role", role, "actor_id", actorID, "ip", clientIP(r))
+	slog.Info(actionMsg, "id", id, "label", internal.SanitizeLog(label), "role", role, "actor_id", actorID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 
 	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: role, Secret: secret}); err == nil { // #nosec G117 -- One-time flash cookie for displaying generated token secret
-		setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
+		s.setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
 	}
 	redirect(w, r)
 }
@@ -287,84 +327,88 @@ func (s *server) handleAdminCreateTokenSSR(w http.ResponseWriter, r *http.Reques
 // handleAdminToggleTokenSSR toggles the disabled state of a token.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminToggleTokenSSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminCookie(w, r) {
+	actor, ok := s.requireAdminCookie(w, r)
+	if !ok {
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	actorID := s.actorIDFromCookie(r)
+	actorID := actor.ID
 	id := r.PathValue("id")
 	disable := r.FormValue("disable") == "true"
 	if err := s.store.SetDisabled(id, disable); err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
-	slog.Info("token state updated", "id", id, "disabled", disable, "actor_id", actorID, "ip", clientIP(r))
+	slog.Info("token state updated", "id", id, "disabled", disable, "actor_id", actorID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
 // handleAdminSetRoleSSR sets the role of a token.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminSetRoleSSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireRootCookie(w, r) {
+	actor, ok := s.requireRootCookie(w, r)
+	if !ok {
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	actorID := s.actorIDFromCookie(r)
+	actorID := actor.ID
 	id := r.PathValue("id")
 	role := r.FormValue("role")
 	oldRec, _ := s.store.GetRecord(id)
 	if err := s.store.SetRole(id, role); err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 	actionMsg := roleActionName(oldRec.Role, role)
-	slog.Info(actionMsg, "id", id, "old_role", oldRec.Role, "new_role", role, "actor_id", actorID, "ip", clientIP(r))
+	slog.Info(actionMsg, "id", id, "old_role", oldRec.Role, "new_role", role, "actor_id", actorID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
 // handleAdminDeleteTokenSSR deletes a token and purges its uploaded media.
 // It accepts requests from an admin or the token owner (account self-deletion).
 func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	id := r.PathValue("id")
+	target, found := s.store.GetRecord(r.PathValue("id"))
+	if !found {
+		s.redirectWithError(w, r, "token not found")
+		return
+	}
+	id := target.ID
 	if !internal.IsAdmin(userRec.Role) && userRec.ID != id {
-		redirectWithError(w, r, "forbidden: admin token or self required")
+		s.redirectWithError(w, r, "forbidden: admin token or self required")
 		return
 	}
 
-	s.purgeUserMedia(id)
 	if err := s.store.Remove(id); err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
-	slog.Info("token deletion", "id", id, "actor_id", userRec.ID, "ip", clientIP(r))
+	if err := s.purgeUserMedia(id, false); err != nil {
+		slog.Error("token deleted but media purge failed", "id", id, "error", err)
+		s.redirectWithError(w, r, "token deleted, but media purge failed")
+		return
+	}
+	slog.Info("token deletion", "id", id, "actor_id", userRec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 
 	if userRec.ID == id {
-		clearCookie(w, r, adminCookieName)
-		setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte("account deleted")), 0)
+		s.clearSessionCookies(w, r)
+		s.setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte("account deleted")), 0)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
@@ -380,55 +424,49 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 // handlePurgeUserMediaSSR purges all media for a token via form submit.
 // It requires an admin token and validates the CSRF token before purging.
 func (s *server) handlePurgeUserMediaSSR(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	id := r.PathValue("id")
+	target, found := s.store.GetRecord(r.PathValue("id"))
+	if !found {
+		s.redirectWithError(w, r, "token not found")
+		return
+	}
+	id := target.ID
 	if !internal.IsAdmin(userRec.Role) && userRec.ID != id {
-		redirectWithError(w, r, "forbidden")
+		s.redirectWithError(w, r, "forbidden")
 		return
 	}
 
-	s.purgeUserMedia(id)
-	slog.Info("media purged", "id", id, "actor_id", userRec.ID, "ip", clientIP(r))
+	if err := s.purgeUserMedia(id, true); err != nil {
+		s.redirectWithError(w, r, "could not purge media")
+		return
+	}
+	slog.Info("media purged", "id", id, "actor_id", userRec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
 // handleDeleteFileSSR removes a single uploaded file via form submit.
 // It requires an admin token and validates the CSRF token before deleting.
 func (s *server) handleDeleteFileSSR(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
 	filename := r.FormValue("filename")
 	if filename == "" {
-		redirectWithError(w, r, "missing filename")
+		s.redirectWithError(w, r, "missing filename")
 		return
 	}
 
@@ -437,7 +475,7 @@ func (s *server) handleDeleteFileSSR(w http.ResponseWriter, r *http.Request) {
 		ownerID, fullName = s.fileIndex.Lookup(filename)
 	}
 	if ownerID == "" {
-		redirectWithError(w, r, "file not found")
+		s.redirectWithError(w, r, "file not found")
 		return
 	}
 	if fullName == "" {
@@ -445,7 +483,7 @@ func (s *server) handleDeleteFileSSR(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !internal.IsAdmin(userRec.Role) && userRec.ID != ownerID {
-		redirectWithError(w, r, "forbidden")
+		s.redirectWithError(w, r, "forbidden")
 		return
 	}
 
@@ -453,7 +491,7 @@ func (s *server) handleDeleteFileSSR(w http.ResponseWriter, r *http.Request) {
 	// #nosec G703,G706 -- disk is constructed from validated ownerID and filename from index, log input sanitized
 	if err := os.Remove(disk); err != nil && !os.IsNotExist(err) {
 		slog.Error("delete file error", "name", internal.SanitizeLog(fullName), "error", err)
-		redirectWithError(w, r, "could not delete file")
+		s.redirectWithError(w, r, "could not delete file")
 		return
 	}
 
@@ -467,7 +505,7 @@ func (s *server) handleDeleteFileSSR(w http.ResponseWriter, r *http.Request) {
 		"owner_id", internal.SanitizeLog(ownerID),
 		"actor_id", internal.SanitizeLog(userRec.ID),
 		"actor_label", internal.SanitizeLog(userRec.Label),
-		"ip", internal.SanitizeLog(clientIP(r)),
+		"ip", internal.SanitizeLog(clientIP(r, s.cfg.TrustProxyHeaders)),
 	)
 
 	ref := r.Header.Get("Referer")
@@ -482,24 +520,25 @@ func (s *server) handleDeleteFileSSR(w http.ResponseWriter, r *http.Request) {
 // dialog, accepting human sizes (e.g. "5GB") and counts.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminSetLimitsSSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminCookie(w, r) {
+	actor, ok := s.requireAdminCookie(w, r)
+	if !ok {
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	actorID := s.actorIDFromCookie(r)
+	actorID := actor.ID
 	lim, err := parseLimitsForm(r)
 	if err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 	bypass := r.FormValue("bypass") == "on" || r.FormValue("bypass") == "true"
 	id := r.PathValue("id")
 	if err := s.store.SetLimits(id, lim, bypass); err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 	var invites int
@@ -516,7 +555,7 @@ func (s *server) handleAdminSetLimitsSSR(w http.ResponseWriter, r *http.Request)
 		"invites", invites,
 		"bypass", bypass,
 		"actor_id", actorID,
-		"ip", clientIP(r),
+		"ip", clientIP(r, s.cfg.TrustProxyHeaders),
 	)
 	redirect(w, r)
 }
@@ -524,31 +563,24 @@ func (s *server) handleAdminSetLimitsSSR(w http.ResponseWriter, r *http.Request)
 // handleInviteTokenSSR allows an authorized token user (or admin) to create a token.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleInviteTokenSSR(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
 	label := r.FormValue("label")
 	id, secret, err := s.store.AddWithInvite(userRec.ID, label)
 	if err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
-	slog.Info("invite token creation", "id", id, "inviter_id", userRec.ID, "label", internal.SanitizeLog(label), "ip", clientIP(r))
+	slog.Info("invite token creation", "id", id, "inviter_id", userRec.ID, "label", internal.SanitizeLog(label), "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	if flashData, err := json.Marshal(newTokenSecret{ID: id, Role: internal.RoleUpload, Secret: secret}); err == nil { // #nosec G117 -- One-time flash cookie for displaying generated token secret
-		setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
+		s.setCookie(w, r, flashSecretName, base64.URLEncoding.EncodeToString(flashData), 0)
 	}
 	redirect(w, r)
 }
@@ -557,22 +589,23 @@ func (s *server) handleInviteTokenSSR(w http.ResponseWriter, r *http.Request) {
 // dashboard's global-quota form.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminSetGlobalLimitsSSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminCookie(w, r) {
+	actor, ok := s.requireAdminCookie(w, r)
+	if !ok {
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	actorID := s.actorIDFromCookie(r)
+	actorID := actor.ID
 	lim, err := parseLimitsForm(r)
 	if err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 	if err := s.store.SetGlobalLimits(lim); err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
 	slog.Info("global quota updated",
@@ -581,7 +614,7 @@ func (s *server) handleAdminSetGlobalLimitsSSR(w http.ResponseWriter, r *http.Re
 		"monthly_bytes", lim.MonthlyBytes,
 		"monthly_uploads", lim.MonthlyUploads,
 		"actor_id", actorID,
-		"ip", clientIP(r),
+		"ip", clientIP(r, s.cfg.TrustProxyHeaders),
 	)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -589,7 +622,8 @@ func (s *server) handleAdminSetGlobalLimitsSSR(w http.ResponseWriter, r *http.Re
 // handleListTokens lists all tokens and the global quota.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleListTokens(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	_, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"tokens": s.store.List(), "global": s.store.GlobalLimits()})
@@ -599,15 +633,18 @@ func (s *server) handleListTokens(w http.ResponseWriter, r *http.Request) {
 // optional (an empty body defaults to an upload token); root is never allowed.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireAdmin(w, r) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	var req struct {
 		Label string `json:"label"`
 		Role  string `json:"role"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req)
+	if err := decodeJSON(w, r, &req, true); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
 	if req.Role == "" {
 		req.Role = internal.RoleUpload
 	}
@@ -625,7 +662,7 @@ func (s *server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	if internal.IsAdmin(req.Role) {
 		actionMsg = "admin token creation"
 	}
-	slog.Info(actionMsg, "id", id, "label", internal.SanitizeLog(req.Label), "role", req.Role, "actor_id", rec.ID, "ip", clientIP(r))
+	slog.Info(actionMsg, "id", id, "label", internal.SanitizeLog(req.Label), "role", req.Role, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":     id,
@@ -638,37 +675,55 @@ func (s *server) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 // handleDeleteToken deletes a token by its ID and purges its uploaded media.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireAdmin(w, r) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
-	id := r.PathValue("id")
-	s.purgeUserMedia(id)
+	target, found := s.store.GetRecord(r.PathValue("id"))
+	if !found {
+		httpError(w, http.StatusNotFound, "token not found")
+		return
+	}
+	id := target.ID
 	if err := s.store.Remove(id); err != nil {
 		writeStoreErr(w, err)
 		return
 	}
-	slog.Info("token deletion", "id", id, "actor_id", rec.ID, "ip", clientIP(r))
+	if err := s.purgeUserMedia(id, false); err != nil {
+		slog.Error("token deleted but media purge failed", "id", id, "error", err)
+		httpError(w, http.StatusInternalServerError, "token deleted, but media purge failed")
+		return
+	}
+	slog.Info("token deletion", "id", id, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // purgeUserMedia removes all uploaded files for a token from disk, the upload
 // entries from the store, and the reverse index. It is the shared core behind
 // token deletion, self-serve purge, and admin-initiated purge.
-func (s *server) purgeUserMedia(tokenID string) {
-	// Remove the per-user directory from disk.
+func (s *server) purgeUserMedia(tokenID string, clearStore bool) error {
+	if !tokenIDRe.MatchString(tokenID) {
+		return fmt.Errorf("invalid token ID")
+	}
 	userDir := filepath.Join(s.cfg.Dir, tokenID)
-	// #nosec G703,G706 -- tokenID is validated 8-char hex token ID, log input sanitized
+	// #nosec G703,G706 -- tokenID is strictly validated as an 8-character hex ID.
 	if err := os.RemoveAll(userDir); err != nil {
 		slog.Error("purge media dir error", "dir", internal.SanitizeLog(userDir), "error", err)
+		return fmt.Errorf("remove media directory: %w", err)
 	}
-	// Clear from the in-memory index.
+	var historyErr error
+	if clearStore {
+		historyErr = s.store.RemoveAllUploadEntries(tokenID)
+	}
 	if s.fileIndex != nil {
 		s.fileIndex.RemoveAll(tokenID)
 	}
-	// Clear the upload entries from the store.
-	_ = s.store.RemoveAllUploadEntries(tokenID)
-	slog.Info("purged all media", "id", internal.SanitizeLog(tokenID))
+	if historyErr != nil {
+		slog.Error("purge upload history error", "id", tokenID, "error", historyErr)
+		return fmt.Errorf("remove upload history: %w", historyErr)
+	}
+	slog.Info("purged all media", "id", tokenID)
+	return nil
 }
 
 // handlePurgeMedia lets an authenticated user delete all their own uploads.
@@ -679,8 +734,11 @@ func (s *server) handlePurgeMedia(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	s.purgeUserMedia(rec.ID)
-	slog.Info("media purged", "id", rec.ID, "actor_id", rec.ID, "ip", clientIP(r))
+	if err := s.purgeUserMedia(rec.ID, true); err != nil {
+		httpError(w, http.StatusInternalServerError, "could not purge media")
+		return
+	}
+	slog.Info("media purged", "id", rec.ID, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "purged": rec.ID})
 }
 
@@ -696,53 +754,57 @@ func (s *server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Confirm bool `json:"confirm"`
 	}
-	_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req)
+	if err := decodeJSON(w, r, &req, false); err != nil {
+		httpError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
 	if !req.Confirm {
 		httpError(w, http.StatusBadRequest, `send {"confirm":true} to delete your account`)
 		return
 	}
-	s.purgeUserMedia(rec.ID)
 	if err := s.store.Remove(rec.ID); err != nil {
 		writeStoreErr(w, err)
 		return
 	}
-	slog.Info("account self-deleted", "id", internal.SanitizeLog(rec.ID), "label", internal.SanitizeLog(rec.Label), "ip", clientIP(r))
+	if err := s.purgeUserMedia(rec.ID, false); err != nil {
+		slog.Error("account deleted but media purge failed", "id", rec.ID, "error", err)
+		httpError(w, http.StatusInternalServerError, "account deleted, but media purge failed")
+		return
+	}
+	slog.Info("account self-deleted", "id", internal.SanitizeLog(rec.ID), "label", internal.SanitizeLog(rec.Label), "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": rec.ID})
 }
 
 // handleAdminPurgeUserMedia lets an admin purge all media for a specific user
 // without deleting the user's token.
 func (s *server) handleAdminPurgeUserMedia(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireAdmin(w, r) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
-	id := r.PathValue("id")
-	if _, found := s.store.GetRecord(id); !found {
+	target, found := s.store.GetRecord(r.PathValue("id"))
+	if !found {
 		httpError(w, http.StatusNotFound, "token not found")
 		return
 	}
-	s.purgeUserMedia(id)
-	slog.Info("media purged", "id", id, "actor_id", rec.ID, "ip", clientIP(r))
+	id := target.ID
+	if err := s.purgeUserMedia(id, true); err != nil {
+		httpError(w, http.StatusInternalServerError, "could not purge media")
+		return
+	}
+	slog.Info("media purged", "id", id, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "purged": id})
 }
 
 // handleSetLabelSSR handles renaming a token via form submit.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetLabelSSR(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
@@ -754,10 +816,10 @@ func (s *server) handleSetLabelSSR(w http.ResponseWriter, r *http.Request) {
 
 	newLabel := r.FormValue("label")
 	if err := s.store.SetLabel(id, newLabel); err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
-	slog.Info("token renamed", "id", id, "label", internal.SanitizeLog(newLabel), "actor_id", userRec.ID, "ip", clientIP(r))
+	slog.Info("token renamed", "id", id, "label", internal.SanitizeLog(newLabel), "actor_id", userRec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
@@ -777,7 +839,7 @@ func (s *server) handleSetLabel(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Label string `json:"label"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req, false); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -785,22 +847,22 @@ func (s *server) handleSetLabel(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	slog.Info("token renamed", "id", id, "label", internal.SanitizeLog(req.Label), "actor_id", rec.ID, "ip", clientIP(r))
+	slog.Info("token renamed", "id", id, "label", internal.SanitizeLog(req.Label), "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "label": req.Label})
 }
 
 // handleSetRole is the JSON API endpoint for changing a token's role.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetRole(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireRoot(w, r) {
+	rec, ok := s.requireRoot(w, r)
+	if !ok {
 		return
 	}
 	id := r.PathValue("id")
 	var req struct {
 		Role string `json:"role"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req, false); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -810,7 +872,7 @@ func (s *server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actionMsg := roleActionName(oldRec.Role, req.Role)
-	slog.Info(actionMsg, "id", id, "old_role", oldRec.Role, "new_role", req.Role, "actor_id", rec.ID, "ip", clientIP(r))
+	slog.Info(actionMsg, "id", id, "old_role", oldRec.Role, "new_role", req.Role, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "role": req.Role})
 }
 
@@ -819,8 +881,8 @@ func (s *server) handleSetRole(w http.ResponseWriter, r *http.Request) {
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetDisabled(disabled bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		rec, _ := s.authenticate(r)
-		if !s.requireAdmin(w, r) {
+		rec, ok := s.requireAdmin(w, r)
+		if !ok {
 			return
 		}
 		id := r.PathValue("id")
@@ -828,7 +890,7 @@ func (s *server) handleSetDisabled(disabled bool) http.HandlerFunc {
 			writeStoreErr(w, err)
 			return
 		}
-		slog.Info("token state updated", "id", id, "disabled", disabled, "actor_id", rec.ID, "ip", clientIP(r))
+		slog.Info("token state updated", "id", id, "disabled", disabled, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "disabled": disabled})
 	}
 }
@@ -839,16 +901,16 @@ func (s *server) handleSetDisabled(disabled bool) http.HandlerFunc {
 // It requires the admin cookie and a valid CSRF token.
 // default; an empty body clears every quota and the bypass flag.
 func (s *server) handleSetLimits(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireAdmin(w, r) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	var req struct {
 		internal.Limits
 		Bypass bool `json:"bypass"`
 	}
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req)
-	if err != nil && !errors.Is(err, io.EOF) {
+	err := decodeJSON(w, r, &req, true)
+	if err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -865,7 +927,7 @@ func (s *server) handleSetLimits(w http.ResponseWriter, r *http.Request) {
 		"monthly_uploads", req.MonthlyUploads,
 		"bypass", req.Bypass,
 		"actor_id", rec.ID,
-		"ip", clientIP(r),
+		"ip", clientIP(r, s.cfg.TrustProxyHeaders),
 	)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -873,13 +935,13 @@ func (s *server) handleSetLimits(w http.ResponseWriter, r *http.Request) {
 // handleSetGlobalLimits is the JSON API for the server-wide default quota.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleSetGlobalLimits(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireAdmin(w, r) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	var lim internal.Limits
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&lim)
-	if err != nil && !errors.Is(err, io.EOF) {
+	err := decodeJSON(w, r, &lim, true)
+	if err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -893,7 +955,7 @@ func (s *server) handleSetGlobalLimits(w http.ResponseWriter, r *http.Request) {
 		"monthly_bytes", lim.MonthlyBytes,
 		"monthly_uploads", lim.MonthlyUploads,
 		"actor_id", rec.ID,
-		"ip", clientIP(r),
+		"ip", clientIP(r, s.cfg.TrustProxyHeaders),
 	)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
@@ -986,8 +1048,8 @@ func redirect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
-	setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
+func (s *server) redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
+	s.setCookie(w, r, flashErrorName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
 	ref := r.Header.Get("Referer")
 	if isSafeRedirectTarget(ref, r.Host) {
 		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
@@ -999,15 +1061,8 @@ func redirectWithError(w http.ResponseWriter, r *http.Request, msg string) {
 // handleUserUploads renders the per-token upload history page.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 
@@ -1061,8 +1116,8 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 	end := min(start+perPage, totalFiles)
 	pageEntries := entries[start:end]
 
-	csrf := generateCSRF()
-	setCSRFCookie(w, r, csrf)
+	csrf := csrfForRequest(r)
+	s.setCSRFCookie(w, r, csrf)
 
 	totalUnfiltered := 0
 	if query != "" {
@@ -1088,7 +1143,7 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if c, err := r.Cookie(flashErrorName); err == nil {
-		clearCookie(w, r, flashErrorName)
+		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
 		}
@@ -1100,15 +1155,8 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 // handleAdminUsersPage renders the paginated and searchable users list.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 	if !internal.IsAdmin(userRec.Role) {
@@ -1148,8 +1196,8 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 	end := min(start+perPage, totalTokens)
 	pageTokens := tokens[start:end]
 
-	csrf := generateCSRF()
-	setCSRFCookie(w, r, csrf)
+	csrf := csrfForRequest(r)
+	s.setCSRFCookie(w, r, csrf)
 
 	totalUnfiltered := 0
 	if query != "" {
@@ -1176,7 +1224,7 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 
 	// Read flash cookies
 	if c, err := r.Cookie(flashSecretName); err == nil {
-		clearCookie(w, r, flashSecretName)
+		s.clearCookie(w, r, flashSecretName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			var secretData newTokenSecret
 			if json.Unmarshal(decoded, &secretData) == nil {
@@ -1185,7 +1233,7 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if c, err := r.Cookie(flashErrorName); err == nil {
-		clearCookie(w, r, flashErrorName)
+		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
 		}
@@ -1197,15 +1245,8 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 // handleAdminUserProfilePage renders the user profile card view for a specific token ID.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(adminCookieName)
-	if err != nil {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-		return
-	}
-	userRec, ok := s.store.Authenticate(c.Value)
+	userRec, ok := s.requireSession(w, r)
 	if !ok {
-		clearCookie(w, r, adminCookieName)
-		redirectWithError(w, r, "session expired")
 		return
 	}
 	targetID := r.PathValue("id")
@@ -1216,12 +1257,12 @@ func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Reque
 
 	targetRec, found := s.store.GetRecord(targetID)
 	if !found {
-		redirectWithError(w, r, "user not found")
+		s.redirectWithError(w, r, "user not found")
 		return
 	}
 
-	csrf := generateCSRF()
-	setCSRFCookie(w, r, csrf)
+	csrf := csrfForRequest(r)
+	s.setCSRFCookie(w, r, csrf)
 
 	data := userProfilePageData{
 		LoggedIn:     true,
@@ -1235,7 +1276,7 @@ func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Reque
 	}
 
 	if c, err := r.Cookie(flashErrorName); err == nil {
-		clearCookie(w, r, flashErrorName)
+		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
 		}
@@ -1247,7 +1288,8 @@ func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Reque
 // handleAPITokenUploads returns JSON upload history for token id.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleAPITokenUploads(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	_, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	tokenID := r.PathValue("id")
@@ -1265,19 +1307,20 @@ func (s *server) handleAPITokenUploads(w http.ResponseWriter, r *http.Request) {
 // handleGiveawaySSR handles the SSR request to add N invites to all upload tokens.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleGiveawaySSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminCookie(w, r) {
+	actor, ok := s.requireAdminCookie(w, r)
+	if !ok {
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	actorID := s.actorIDFromCookie(r)
+	actorID := actor.ID
 	countStr := r.FormValue("count")
 	count, err := strconv.Atoi(countStr)
 	if err != nil || count <= 0 {
-		redirectWithError(w, r, "invite count must be a positive number")
+		s.redirectWithError(w, r, "invite count must be a positive number")
 		return
 	}
 
@@ -1288,7 +1331,7 @@ func (s *server) handleGiveawaySSR(w http.ResponseWriter, r *http.Request) {
 	var updated int
 	if mode == "random" {
 		if pool <= 0 {
-			redirectWithError(w, r, "pool size must be positive for random mode")
+			s.redirectWithError(w, r, "pool size must be positive for random mode")
 			return
 		}
 		updated, err = s.store.AddInvitesToRandomUploaders(count, pool, maxCap)
@@ -1297,18 +1340,18 @@ func (s *server) handleGiveawaySSR(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
-	slog.Info("giveaway invites executed", "count", count, "mode", mode, "updated_users", updated, "actor_id", actorID, "ip", clientIP(r))
+	slog.Info("giveaway invites executed", "count", count, "mode", mode, "updated_users", updated, "actor_id", actorID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
 // handleGiveawayAPI handles the JSON API request to add N invites to all upload tokens.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireAdmin(w, r) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	var req struct {
@@ -1317,7 +1360,7 @@ func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
 		Pool   int    `json:"pool"`
 		MaxCap int    `json:"max_cap"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&req); err != nil || req.Count <= 0 {
+	if err := decodeJSON(w, r, &req, false); err != nil || req.Count <= 0 {
 		httpError(w, http.StatusBadRequest, "count must be a positive integer")
 		return
 	}
@@ -1338,7 +1381,7 @@ func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
 		writeStoreErr(w, err)
 		return
 	}
-	slog.Info("giveaway invites executed", "count", req.Count, "mode", req.Mode, "updated_users", updated, "actor_id", rec.ID, "ip", clientIP(r))
+	slog.Info("giveaway invites executed", "count", req.Count, "mode", req.Mode, "updated_users", updated, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -1350,15 +1393,16 @@ func (s *server) handleGiveawayAPI(w http.ResponseWriter, r *http.Request) {
 
 // handleSetInvitePolicySSR handles setting the invite policy via form submission.
 func (s *server) handleSetInvitePolicySSR(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdminCookie(w, r) {
+	actor, ok := s.requireAdminCookie(w, r)
+	if !ok {
 		return
 	}
 	if !validateCSRF(r) {
-		redirectWithError(w, r, "invalid request")
+		s.redirectWithError(w, r, "invalid request")
 		return
 	}
 
-	actorID := s.actorIDFromCookie(r)
+	actorID := actor.ID
 	schedInterval, _ := strconv.Atoi(r.FormValue("sched_interval"))
 	schedCount, _ := strconv.Atoi(r.FormValue("sched_count"))
 	schedPool, _ := strconv.Atoi(r.FormValue("sched_pool"))
@@ -1381,21 +1425,21 @@ func (s *server) handleSetInvitePolicySSR(w http.ResponseWriter, r *http.Request
 	}
 
 	if err := s.store.SetInvitePolicy(pol); err != nil {
-		redirectWithError(w, r, err.Error())
+		s.redirectWithError(w, r, err.Error())
 		return
 	}
-	slog.Info("invite policy updated", "actor_id", actorID, "sched_enabled", pol.SchedEnabled, "sched_interval", pol.SchedInterval, "sched_count", pol.SchedCount, "newuser_enabled", pol.NewUserEnabled, "ip", clientIP(r))
+	slog.Info("invite policy updated", "actor_id", actorID, "sched_enabled", pol.SchedEnabled, "sched_interval", pol.SchedInterval, "sched_count", pol.SchedCount, "newuser_enabled", pol.NewUserEnabled, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
 }
 
 // handleSetInvitePolicyAPI handles setting the invite policy via JSON API.
 func (s *server) handleSetInvitePolicyAPI(w http.ResponseWriter, r *http.Request) {
-	rec, _ := s.authenticate(r)
-	if !s.requireAdmin(w, r) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	var pol internal.InvitePolicy
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&pol); err != nil {
+	if err := decodeJSON(w, r, &pol, false); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -1403,13 +1447,14 @@ func (s *server) handleSetInvitePolicyAPI(w http.ResponseWriter, r *http.Request
 		writeStoreErr(w, err)
 		return
 	}
-	slog.Info("invite policy updated", "actor_id", rec.ID, "sched_enabled", pol.SchedEnabled, "sched_interval", pol.SchedInterval, "sched_count", pol.SchedCount, "newuser_enabled", pol.NewUserEnabled, "ip", clientIP(r))
+	slog.Info("invite policy updated", "actor_id", rec.ID, "sched_enabled", pol.SchedEnabled, "sched_interval", pol.SchedInterval, "sched_count", pol.SchedCount, "newuser_enabled", pol.NewUserEnabled, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // handleGetInvitePolicyAPI handles getting the invite policy via JSON API.
 func (s *server) handleGetInvitePolicyAPI(w http.ResponseWriter, r *http.Request) {
-	if !s.requireAdmin(w, r) {
+	_, ok := s.requireAdmin(w, r)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.store.InvitePolicy())

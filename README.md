@@ -184,3 +184,10 @@ Everything is set through environment variables:
 | `STRIP_EXTENSION` | Drop the file extension from returned URLs | `false` |
 | `ENABLE_ADMIN` | Mount the admin dashboard and API | `true` |
 | `SERVE_FILES` | Serve uploaded files | `false` |
+| `TRUST_PROXY_HEADERS` | Trust `X-Forwarded-Proto` and `X-Forwarded-For` from your reverse proxy | `false` |
+| `REQUEST_TIMEOUT` | Deadline for non-upload HTTP responses (Go duration) | `30s` |
+
+Leave `TRUST_PROXY_HEADERS=false` when clients can connect directly. Enable it only
+when a trusted reverse proxy overwrites forwarded headers. Streamed uploads are
+excluded from `REQUEST_TIMEOUT`; `MAX_UPLOAD_BYTES` and quota reservations bound
+their request bodies instead.

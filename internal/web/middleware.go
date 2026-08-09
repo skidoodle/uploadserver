@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -9,11 +10,49 @@ import (
 )
 
 // secureHeaders applies conservative response headers to every request.
-func secureHeaders(next http.Handler) http.Handler {
+func (s *server) secureHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
+		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
 		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; media-src 'self'; font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'")
+		if requestIsHTTPS(r, s.cfg.TrustProxyHeaders) {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// limitFormBodies caps dashboard form submissions before any handler can call
+// FormValue. The streamed upload endpoint and bearer-authenticated JSON API are
+// deliberately excluded.
+func limitFormBodies(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/_/") && !strings.HasPrefix(r.URL.Path, "/_/api/") {
+			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+			if err := r.ParseForm(); err != nil {
+				var tooLarge *http.MaxBytesError
+				if errors.As(err, &tooLarge) {
+					httpError(w, http.StatusRequestEntityTooLarge, "form body too large")
+				} else {
+					httpError(w, http.StatusBadRequest, "invalid form body")
+				}
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requestDeadline bounds ordinary responses without imposing a server-wide
+// WriteTimeout on potentially long streamed uploads.
+func (s *server) requestDeadline(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !(r.Method == http.MethodPost && r.URL.Path == "/") && s.cfg.RequestTimeout > 0 {
+			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(s.cfg.RequestTimeout))
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -60,7 +99,7 @@ func shouldSilenceLog(r *http.Request) bool {
 }
 
 // logging records the request method, URL, status, and duration of each request.
-func logging(next http.Handler) http.Handler {
+func (s *server) logging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
@@ -71,7 +110,7 @@ func logging(next http.Handler) http.Handler {
 				"path", internal.SanitizeLog(r.URL.Path),
 				"status", rec.status,
 				"duration", time.Since(start).Round(time.Millisecond),
-				"ip", clientIP(r),
+				"ip", clientIP(r, s.cfg.TrustProxyHeaders),
 			)
 		}
 	})

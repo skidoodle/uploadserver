@@ -76,7 +76,7 @@ func (s *server) routes() http.Handler {
 		mux.HandleFunc("GET /_/users", s.handleAdminUsersPage)
 		mux.HandleFunc("GET /_/user/{id}", s.handleAdminUserProfilePage)
 	}
-	return logging(secureHeaders(mux))
+	return s.logging(s.requestDeadline(s.secureHeaders(limitFormBodies(mux))))
 }
 
 // authenticate resolves the bearer token on the request to a record, if valid.
@@ -90,25 +90,25 @@ func (s *server) authenticate(r *http.Request) (internal.TokenRecord, bool) {
 }
 
 // requireAdmin enforces an admin-role token, writing a 401 if absent.
-func (s *server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+func (s *server) requireAdmin(w http.ResponseWriter, r *http.Request) (internal.TokenRecord, bool) {
 	rec, ok := s.authenticate(r)
 	if !ok || !internal.IsAdmin(rec.Role) {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="admin"`)
 		httpError(w, http.StatusUnauthorized, "admin token required")
-		return false
+		return internal.TokenRecord{}, false
 	}
-	return true
+	return rec, true
 }
 
 // requireRoot enforces a root-role token, writing a 401 if absent or unauthorized.
-func (s *server) requireRoot(w http.ResponseWriter, r *http.Request) bool {
+func (s *server) requireRoot(w http.ResponseWriter, r *http.Request) (internal.TokenRecord, bool) {
 	rec, ok := s.authenticate(r)
 	if !ok || rec.Role != internal.RoleRoot {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="root"`)
 		httpError(w, http.StatusUnauthorized, "root token required")
-		return false
+		return internal.TokenRecord{}, false
 	}
-	return true
+	return rec, true
 }
 
 // gateAdminAsset serves a static asset only to a request carrying a valid admin

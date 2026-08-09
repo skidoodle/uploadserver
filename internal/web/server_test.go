@@ -285,7 +285,7 @@ func TestAllServerRoutes(t *testing.T) {
 			method:               "POST",
 			path:                 "/_/api/tokens/" + targetID + "/limits",
 			contentType:          "application/json",
-			body:                 `{"max_files":10}`,
+			body:                 `{"max_uploads":10}`,
 			unauthExpectedStatus: http.StatusUnauthorized,
 			authExpectedStatus:   http.StatusOK,
 		},
@@ -316,7 +316,7 @@ func TestAllServerRoutes(t *testing.T) {
 			method:               "POST",
 			path:                 "/_/api/global/limits",
 			contentType:          "application/json",
-			body:                 `{"max_files":100}`,
+			body:                 `{"max_uploads":100}`,
 			unauthExpectedStatus: http.StatusUnauthorized,
 			authExpectedStatus:   http.StatusOK,
 		},
@@ -342,7 +342,7 @@ func TestAllServerRoutes(t *testing.T) {
 			method:               "POST",
 			path:                 "/_/api/invite-policy",
 			contentType:          "application/json",
-			body:                 `{"enabled":true}`,
+			body:                 `{"sched_on":true}`,
 			unauthExpectedStatus: http.StatusUnauthorized,
 			authExpectedStatus:   http.StatusOK,
 		},
@@ -547,7 +547,7 @@ func TestServerAuthenticateAndRoleGuards(t *testing.T) {
 	recNoAdmin := httptest.NewRecorder()
 	reqUser := httptest.NewRequest("GET", "/", nil)
 	reqUser.Header.Set("Authorization", "Bearer "+userSecret)
-	if srv.requireAdmin(recNoAdmin, reqUser) {
+	if _, ok := srv.requireAdmin(recNoAdmin, reqUser); ok {
 		t.Errorf("requireAdmin should return false for user role")
 	}
 	if recNoAdmin.Code != http.StatusUnauthorized {
@@ -557,13 +557,13 @@ func TestServerAuthenticateAndRoleGuards(t *testing.T) {
 	recAdmin := httptest.NewRecorder()
 	reqAdmin := httptest.NewRequest("GET", "/", nil)
 	reqAdmin.Header.Set("Authorization", "Bearer "+adminSecret)
-	if !srv.requireAdmin(recAdmin, reqAdmin) {
+	if _, ok := srv.requireAdmin(recAdmin, reqAdmin); !ok {
 		t.Errorf("requireAdmin should return true for admin role")
 	}
 
 	// Test requireRoot
 	recRootFail := httptest.NewRecorder()
-	if srv.requireRoot(recRootFail, reqAdmin) {
+	if _, ok := srv.requireRoot(recRootFail, reqAdmin); ok {
 		t.Errorf("requireRoot should return false for admin role")
 	}
 	if recRootFail.Code != http.StatusUnauthorized {
@@ -573,7 +573,7 @@ func TestServerAuthenticateAndRoleGuards(t *testing.T) {
 	recRootPass := httptest.NewRecorder()
 	reqRoot := httptest.NewRequest("GET", "/", nil)
 	reqRoot.Header.Set("Authorization", "Bearer "+rootSecret)
-	if !srv.requireRoot(recRootPass, reqRoot) {
+	if _, ok := srv.requireRoot(recRootPass, reqRoot); !ok {
 		t.Errorf("requireRoot should return true for root role")
 	}
 }
@@ -735,7 +735,7 @@ func TestRolePermissionsMatrix(t *testing.T) {
 				name:       "Set Token Limits",
 				method:     "POST",
 				path:       "/_/api/tokens/" + targetUploadID + "/limits",
-				body:       `{"max_files":10}`,
+				body:       `{"max_uploads":10}`,
 				uploadWant: http.StatusUnauthorized,
 				adminWant:  http.StatusOK,
 				rootWant:   http.StatusOK,

@@ -31,32 +31,39 @@ func TestWebHelpers(t *testing.T) {
 
 	// Test requestIsHTTPS
 	rHTTP := httptest.NewRequest("GET", "http://example.com", nil)
-	if requestIsHTTPS(rHTTP) {
+	if requestIsHTTPS(rHTTP, false) {
 		t.Errorf("requestIsHTTPS for plain HTTP got true; want false")
 	}
 
 	rTLS := httptest.NewRequest("GET", "http://example.com", nil)
 	rTLS.TLS = &tls.ConnectionState{}
-	if !requestIsHTTPS(rTLS) {
+	if !requestIsHTTPS(rTLS, false) {
 		t.Errorf("requestIsHTTPS for TLS got false; want true")
 	}
 
 	rHeader := httptest.NewRequest("GET", "http://example.com", nil)
 	rHeader.Header.Set("X-Forwarded-Proto", "https")
-	if !requestIsHTTPS(rHeader) {
-		t.Errorf("requestIsHTTPS for X-Forwarded-Proto: https got false; want true")
+	if requestIsHTTPS(rHeader, false) {
+		t.Error("requestIsHTTPS trusted a forwarded scheme by default")
+	}
+	if !requestIsHTTPS(rHeader, true) {
+		t.Error("requestIsHTTPS ignored a trusted forwarded scheme")
 	}
 
 	// Test clientIP
 	rProxy := httptest.NewRequest("GET", "http://example.com", nil)
 	rProxy.Header.Set("X-Forwarded-For", "203.0.113.195, 70.41.3.18")
-	if ip := clientIP(rProxy); ip != "203.0.113.195" {
-		t.Errorf("clientIP with X-Forwarded-For = %q; want 203.0.113.195", ip)
+	rProxy.RemoteAddr = "192.0.2.2:1234"
+	if ip := clientIP(rProxy, false); ip != "192.0.2.2" {
+		t.Errorf("clientIP trusted X-Forwarded-For by default: %q", ip)
+	}
+	if ip := clientIP(rProxy, true); ip != "203.0.113.195" {
+		t.Errorf("clientIP with trusted X-Forwarded-For = %q; want 203.0.113.195", ip)
 	}
 
 	rDirect := httptest.NewRequest("GET", "http://example.com", nil)
 	rDirect.RemoteAddr = "192.0.2.1:12345"
-	if ip := clientIP(rDirect); ip != "192.0.2.1" {
+	if ip := clientIP(rDirect, false); ip != "192.0.2.1" {
 		t.Errorf("clientIP direct = %q; want 192.0.2.1", ip)
 	}
 }

@@ -31,11 +31,13 @@ const (
 func IsAdmin(role string) bool { return role == RoleRoot || role == RoleAdmin }
 
 var (
-	ErrNotFound      = errors.New("token not found")
-	ErrLastAdmin     = errors.New("refusing to remove or disable the last enabled admin token")
-	ErrProtectedRoot = errors.New("the root token cannot be deleted or disabled; use `token reset` to replace it")
-	ErrInvalidLabel  = errors.New("label must be 1-9 characters, starting and ending with an alphanumeric character (can contain underscores or hyphens in the middle)")
-	ErrNoInvites     = errors.New("no invites remaining")
+	ErrNotFound           = errors.New("token not found")
+	ErrLastAdmin          = errors.New("refusing to remove or disable the last enabled admin token")
+	ErrProtectedRoot      = errors.New("the root token cannot be deleted or disabled; use `token reset` to replace it")
+	ErrInvalidLabel       = errors.New("label must be 1-9 characters, starting and ending with an alphanumeric character (can contain underscores or hyphens in the middle)")
+	ErrNoInvites          = errors.New("no invites remaining")
+	ErrTokenDisabled      = errors.New("token is disabled")
+	ErrReservationMissing = errors.New("upload reservation not found")
 	// ErrLocked is returned when another process (usually the running server)
 	// already holds the database open.
 	ErrLocked = errors.New("token store is locked by another process; stop the server or use the dashboard to manage tokens while it runs")
@@ -51,6 +53,7 @@ var (
 	globalKey       = []byte("global")
 	invitePolicyKey = []byte("invite_policy")
 	uploadBucket    = []byte("uploads")
+	authBucket      = []byte("auth_index")
 	pendingBucket   = []byte("pending_grants")
 )
 
@@ -115,6 +118,17 @@ func (r TokenRecord) BypassesGlobal() bool {
 // CLI cannot open it (see ErrLocked).
 type TokenStore struct {
 	db *bolt.DB
+
+	reservationMu sync.Mutex
+	reservations  map[string]map[UploadReservation]uploadReservation
+}
+
+// UploadReservation identifies an in-flight upload admitted against a token's
+// quotas. It is opaque to callers and valid until CommitUpload or CancelUpload.
+type UploadReservation string
+
+type uploadReservation struct {
+	budget int64
 }
 
 // OpenStore opens (creating if needed) the bbolt store at path. The parent
@@ -145,13 +159,81 @@ func OpenStore(path string) (*TokenStore, error) {
 		if _, err := tx.CreateBucketIfNotExists(pendingBucket); err != nil {
 			return err
 		}
-		_, err := tx.CreateBucketIfNotExists(metaBucket)
-		return err
+		if _, err := tx.CreateBucketIfNotExists(metaBucket); err != nil {
+			return err
+		}
+		if err := rebuildAuthIndex(tx); err != nil {
+			return err
+		}
+		return migrateUploadEntries(tx)
 	}); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
-	return &TokenStore{db: db}, nil
+	return &TokenStore{
+		db:           db,
+		reservations: make(map[string]map[UploadReservation]uploadReservation),
+	}, nil
+}
+
+func hashKey(hash string) ([]byte, bool) {
+	key, err := hex.DecodeString(hash)
+	return key, err == nil && len(key) == sha256.Size
+}
+
+func rebuildAuthIndex(tx *bolt.Tx) error {
+	if tx.Bucket(authBucket) != nil {
+		if err := tx.DeleteBucket(authBucket); err != nil {
+			return err
+		}
+	}
+	index, err := tx.CreateBucket(authBucket)
+	if err != nil {
+		return err
+	}
+	return tx.Bucket(tokenBucket).ForEach(func(_, value []byte) error {
+		var record TokenRecord
+		if json.Unmarshal(value, &record) != nil {
+			return nil
+		}
+		if key, ok := hashKey(record.Hash); ok {
+			return index.Put(key, []byte(record.ID))
+		}
+		return nil
+	})
+}
+
+func migrateUploadEntries(tx *bolt.Tx) error {
+	uploads := tx.Bucket(uploadBucket)
+	var legacyKeys [][]byte
+	if err := uploads.ForEach(func(key, value []byte) error {
+		if value != nil {
+			legacyKeys = append(legacyKeys, append([]byte(nil), key...))
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	for _, key := range legacyKeys {
+		value := append([]byte(nil), uploads.Get(key)...)
+		var entries []UploadEntry
+		if err := json.Unmarshal(value, &entries); err != nil {
+			return fmt.Errorf("decode legacy uploads for %s: %w", key, err)
+		}
+		if err := uploads.Delete(key); err != nil {
+			return err
+		}
+		bucket, err := uploads.CreateBucket(key)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if err := putUploadEntry(bucket, entry); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // Close releases the database file. The server defers it; the CLI closes after
@@ -164,7 +246,24 @@ func putRecord(tx *bolt.Tx, r *TokenRecord) error {
 	if err != nil {
 		return err
 	}
-	return tx.Bucket(tokenBucket).Put([]byte(r.ID), v)
+	tokens := tx.Bucket(tokenBucket)
+	index := tx.Bucket(authBucket)
+	if old := tokens.Get([]byte(r.ID)); old != nil {
+		var previous TokenRecord
+		if json.Unmarshal(old, &previous) == nil {
+			if key, ok := hashKey(previous.Hash); ok && string(index.Get(key)) == r.ID {
+				if err := index.Delete(key); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if key, ok := hashKey(r.Hash); ok {
+		if err := index.Put(key, []byte(r.ID)); err != nil {
+			return err
+		}
+	}
+	return tokens.Put([]byte(r.ID), v)
 }
 
 // getRecord loads a record by id within tx, returning ErrNotFound if absent.
@@ -222,9 +321,8 @@ func enabledAdmins(tx *bolt.Tx, excludeID string) int {
 }
 
 // Authenticate returns the record matching the presented secret, if it is known
-// and enabled. Every record is compared in constant time to avoid leaking, via
-// timing, which (if any) token matched. The returned LastUsed reflects now but
-// is not persisted on its own — billing an upload is what writes it back.
+// and enabled. The digest index makes lookup O(1); the stored digest is still
+// compared in constant time to defend against a stale or corrupted index entry.
 func (s *TokenStore) Authenticate(secret string) (TokenRecord, bool) {
 	if len(secret) < 16 {
 		return TokenRecord{}, false
@@ -233,21 +331,20 @@ func (s *TokenStore) Authenticate(secret string) (TokenRecord, bool) {
 
 	var match *TokenRecord
 	_ = s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(tokenBucket).ForEach(func(_, v []byte) error {
-			var r TokenRecord
-			if json.Unmarshal(v, &r) != nil {
-				return nil
-			}
-			hb, err := hex.DecodeString(r.Hash)
-			if err != nil || len(hb) != sha256.Size {
-				return nil
-			}
-			if subtle.ConstantTimeCompare(hb, sum[:]) == 1 {
-				rec := r
-				match = &rec
-			}
+		id := tx.Bucket(authBucket).Get(sum[:])
+		if id == nil {
 			return nil
-		})
+		}
+		r, err := getRecord(tx, string(id))
+		if err != nil {
+			return nil
+		}
+		stored, ok := hashKey(r.Hash)
+		if !ok || subtle.ConstantTimeCompare(stored, sum[:]) != 1 {
+			return nil
+		}
+		match = r
+		return nil
 	})
 	if match == nil || match.Disabled {
 		return TokenRecord{}, false
@@ -307,6 +404,11 @@ func (s *TokenStore) Remove(id string) error {
 		}
 		if r.Role == RoleAdmin && !r.Disabled && enabledAdmins(tx, id) == 0 {
 			return ErrLastAdmin
+		}
+		if key, ok := hashKey(r.Hash); ok && string(tx.Bucket(authBucket).Get(key)) == id {
+			if err := tx.Bucket(authBucket).Delete(key); err != nil {
+				return err
+			}
 		}
 		return tx.Bucket(tokenBucket).Delete([]byte(id))
 	})
@@ -370,6 +472,139 @@ func (s *TokenStore) SetRole(id, newRole string) error {
 		}
 		r.Role = newRole
 		return putRecord(tx, r)
+	})
+}
+
+// ReserveUpload atomically admits one in-flight upload and returns its opaque
+// reservation plus the maximum number of bytes it may write. Outstanding
+// reservations count against both count and byte quotas.
+func (s *TokenStore) ReserveUpload(tokenID string, hardMax int64) (UploadReservation, int64, error) {
+	s.reservationMu.Lock()
+	defer s.reservationMu.Unlock()
+
+	var budget int64
+	err := s.db.View(func(tx *bolt.Tx) error {
+		r, err := getRecord(tx, tokenID)
+		if err != nil {
+			return err
+		}
+		if r.Disabled {
+			return ErrTokenDisabled
+		}
+		now := time.Now().UTC()
+		usage := r.Usage
+		monthUploads, monthBytes := usage.thisMonth(now)
+		usage.MonthUploads, usage.MonthBytes, usage.Period = monthUploads, monthBytes, now
+		for _, pending := range s.reservations[tokenID] {
+			usage.Uploads++
+			usage.Bytes += pending.budget
+			usage.MonthUploads++
+			usage.MonthBytes += pending.budget
+		}
+		limits := EffectiveLimits(r.Limits, readGlobal(tx), r.BypassesGlobal())
+		budget, err = limits.budget(usage, now, hardMax)
+		return err
+	})
+	if err != nil {
+		return "", 0, err
+	}
+	if s.reservations[tokenID] == nil {
+		s.reservations[tokenID] = make(map[UploadReservation]uploadReservation)
+	}
+	var reservation UploadReservation
+	for {
+		reservation = UploadReservation(randomID())
+		if _, exists := s.reservations[tokenID][reservation]; !exists {
+			break
+		}
+	}
+	s.reservations[tokenID][reservation] = uploadReservation{budget: budget}
+	return reservation, budget, nil
+}
+
+// CancelUpload releases an in-flight upload without changing persistent usage.
+func (s *TokenStore) CancelUpload(tokenID string, reservation UploadReservation) error {
+	s.reservationMu.Lock()
+	defer s.reservationMu.Unlock()
+	return s.releaseReservation(tokenID, reservation)
+}
+
+func (s *TokenStore) releaseReservation(tokenID string, reservation UploadReservation) error {
+	pending := s.reservations[tokenID]
+	if _, ok := pending[reservation]; !ok {
+		return ErrReservationMissing
+	}
+	delete(pending, reservation)
+	if len(pending) == 0 {
+		delete(s.reservations, tokenID)
+	}
+	return nil
+}
+
+// CommitUpload atomically bills an admitted upload and records its history
+// entry, then releases the reservation. Current token state and quotas are
+// revalidated so deletion, disabling, or quota changes during transfer are safe.
+func (s *TokenStore) CommitUpload(tokenID string, reservation UploadReservation, entry UploadEntry) error {
+	s.reservationMu.Lock()
+	defer s.reservationMu.Unlock()
+
+	pending, ok := s.reservations[tokenID][reservation]
+	if !ok {
+		return ErrReservationMissing
+	}
+	defer func() { _ = s.releaseReservation(tokenID, reservation) }()
+	if entry.Size < 0 || entry.Size > pending.budget {
+		return ErrQuotaBytes
+	}
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		r, err := getRecord(tx, tokenID)
+		if err != nil {
+			return err
+		}
+		if r.Disabled {
+			return ErrTokenDisabled
+		}
+		now := time.Now().UTC()
+		usage := r.Usage
+		monthUploads, monthBytes := usage.thisMonth(now)
+		usage.MonthUploads, usage.MonthBytes, usage.Period = monthUploads, monthBytes, now
+		for id, other := range s.reservations[tokenID] {
+			if id == reservation {
+				continue
+			}
+			usage.Uploads++
+			usage.Bytes += other.budget
+			usage.MonthUploads++
+			usage.MonthBytes += other.budget
+		}
+		limits := EffectiveLimits(r.Limits, readGlobal(tx), r.BypassesGlobal())
+		budget, err := limits.budget(usage, now, entry.Size)
+		if err != nil {
+			return err
+		}
+		if budget < entry.Size {
+			return ErrQuotaBytes
+		}
+
+		if !samePeriod(r.Usage.Period, now) {
+			r.Usage.MonthUploads = 0
+			r.Usage.MonthBytes = 0
+			r.Usage.Period = now
+		}
+		r.Usage.Uploads++
+		r.Usage.Bytes += entry.Size
+		r.Usage.MonthUploads++
+		r.Usage.MonthBytes += entry.Size
+		r.LastUsed = now
+		if err := putRecord(tx, r); err != nil {
+			return err
+		}
+		bucket, err := tx.Bucket(uploadBucket).CreateBucketIfNotExists([]byte(tokenID))
+		if err != nil {
+			return err
+		}
+		return putUploadEntry(bucket, entry)
 	})
 }
 
@@ -770,20 +1005,50 @@ func (s *TokenStore) Ping() error {
 	})
 }
 
-// RecordUploadEntry appends a file record to the token's upload history.
-func (s *TokenStore) RecordUploadEntry(tokenID string, entry UploadEntry) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(uploadBucket)
-		var entries []UploadEntry
-		if v := b.Get([]byte(tokenID)); v != nil {
-			_ = json.Unmarshal(v, &entries)
+func putUploadEntry(bucket *bolt.Bucket, entry UploadEntry) error {
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	return bucket.Put([]byte(entry.Name), data)
+}
+
+func readUploadEntries(bucket *bolt.Bucket) ([]UploadEntry, error) {
+	if bucket == nil {
+		return nil, nil
+	}
+	entries := make([]UploadEntry, 0, bucket.Stats().KeyN)
+	err := bucket.ForEach(func(_, value []byte) error {
+		if value == nil {
+			return nil
+		}
+		var entry UploadEntry
+		if err := json.Unmarshal(value, &entry); err != nil {
+			return err
 		}
 		entries = append(entries, entry)
-		data, err := json.Marshal(entries)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].UploadedAt.Equal(entries[j].UploadedAt) {
+			return entries[i].Name > entries[j].Name
+		}
+		return entries[i].UploadedAt.After(entries[j].UploadedAt)
+	})
+	return entries, nil
+}
+
+// RecordUploadEntry records a file in the token's upload history by filename.
+func (s *TokenStore) RecordUploadEntry(tokenID string, entry UploadEntry) error {
+	return s.db.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.Bucket(uploadBucket).CreateBucketIfNotExists([]byte(tokenID))
 		if err != nil {
 			return err
 		}
-		return b.Put([]byte(tokenID), data)
+		return putUploadEntry(bucket, entry)
 	})
 }
 
@@ -792,11 +1057,16 @@ func (s *TokenStore) RecordUploadEntry(tokenID string, entry UploadEntry) error 
 func (s *TokenStore) AllUploadEntries() (map[string][]UploadEntry, error) {
 	out := make(map[string][]UploadEntry)
 	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(uploadBucket).ForEach(func(k, v []byte) error {
-			var entries []UploadEntry
-			if json.Unmarshal(v, &entries) == nil {
-				out[string(k)] = entries
+		root := tx.Bucket(uploadBucket)
+		return root.ForEach(func(tokenID, value []byte) error {
+			if value != nil {
+				return nil
 			}
+			entries, err := readUploadEntries(root.Bucket(tokenID))
+			if err != nil {
+				return err
+			}
+			out[string(tokenID)] = entries
 			return nil
 		})
 	})
@@ -817,19 +1087,15 @@ func (s *TokenStore) ImportUploadEntries(tokenID string, entries []UploadEntry) 
 			return err
 		}
 
-		// Append to upload history.
-		ub := tx.Bucket(uploadBucket)
-		var existing []UploadEntry
-		if v := ub.Get([]byte(tokenID)); v != nil {
-			_ = json.Unmarshal(v, &existing)
-		}
-		existing = append(existing, entries...)
-		data, err := json.Marshal(existing)
+		// Add each file directly to the token's nested history bucket.
+		bucket, err := tx.Bucket(uploadBucket).CreateBucketIfNotExists([]byte(tokenID))
 		if err != nil {
 			return err
 		}
-		if err := ub.Put([]byte(tokenID), data); err != nil {
-			return err
+		for _, entry := range entries {
+			if err := putUploadEntry(bucket, entry); err != nil {
+				return err
+			}
 		}
 
 		// Update usage counters so quotas and stats reflect imported files.
@@ -854,20 +1120,11 @@ func (s *TokenStore) ImportUploadEntries(tokenID string, entries []UploadEntry) 
 func (s *TokenStore) UploadsFor(tokenID string) ([]UploadEntry, error) {
 	var entries []UploadEntry
 	err := s.db.View(func(tx *bolt.Tx) error {
-		v := tx.Bucket(uploadBucket).Get([]byte(tokenID))
-		if v == nil {
-			return nil
-		}
-		return json.Unmarshal(v, &entries)
+		var err error
+		entries, err = readUploadEntries(tx.Bucket(uploadBucket).Bucket([]byte(tokenID)))
+		return err
 	})
-	if err != nil {
-		return nil, err
-	}
-	// Reverse so newest first
-	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
-		entries[i], entries[j] = entries[j], entries[i]
-	}
-	return entries, nil
+	return entries, err
 }
 
 // FileIndex is a concurrency-safe in-memory reverse index mapping upload
@@ -978,41 +1235,24 @@ func (idx *FileIndex) Count() int {
 	return len(idx.files)
 }
 
-// RemoveUploadEntry removes a specific upload entry from the uploads bucket.
+// RemoveUploadEntry removes a specific upload entry by filename in O(1).
 func (s *TokenStore) RemoveUploadEntry(tokenID, filename string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(uploadBucket)
-		v := b.Get([]byte(tokenID))
-		if v == nil {
+		bucket := tx.Bucket(uploadBucket).Bucket([]byte(tokenID))
+		if bucket == nil {
 			return nil
 		}
-		var entries []UploadEntry
-		if err := json.Unmarshal(v, &entries); err != nil {
-			return err
-		}
-		var updated []UploadEntry
-		for _, e := range entries {
-			if e.Name != filename {
-				updated = append(updated, e)
-			}
-		}
-		if len(updated) == len(entries) {
-			return nil // File not found
-		}
-		if len(updated) == 0 {
-			return b.Delete([]byte(tokenID))
-		}
-		data, err := json.Marshal(updated)
-		if err != nil {
-			return err
-		}
-		return b.Put([]byte(tokenID), data)
+		return bucket.Delete([]byte(filename))
 	})
 }
 
 // RemoveAllUploadEntries deletes the entire upload entry list for a token.
 func (s *TokenStore) RemoveAllUploadEntries(tokenID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(uploadBucket).Delete([]byte(tokenID))
+		root := tx.Bucket(uploadBucket)
+		if root.Bucket([]byte(tokenID)) == nil {
+			return nil
+		}
+		return root.DeleteBucket([]byte(tokenID))
 	})
 }

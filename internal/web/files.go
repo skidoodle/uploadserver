@@ -30,17 +30,22 @@ var fileRules = map[string]fileRule{
 	".bmp":   {control: "public, max-age=31536000, immutable"},
 	".ico":   {control: "public, max-age=31536000, immutable"},
 	".heic":  {control: "public, max-age=31536000, immutable"},
-	".svg":   {control: "public, max-age=31536000, immutable"},
+	".svg":   {control: "public, max-age=31536000, immutable", disposition: "attachment"},
 	".mp4":   {control: "public, max-age=31536000, immutable"},
 	".webm":  {control: "public, max-age=31536000, immutable"},
 	".mov":   {control: "public, max-age=31536000, immutable"},
 	".mp3":   {control: "public, max-age=31536000, immutable"},
 	".flac":  {control: "public, max-age=31536000, immutable"},
 	".txt":   {control: "public, max-age=31536000, immutable"},
-	".html":  {control: "public, max-age=31536000, immutable"},
-	".mhtml": {control: "public, max-age=31536000, immutable"},
-	".css":   {control: "public, max-age=31536000, immutable"},
-	".json":  {control: "public, max-age=31536000, immutable"},
+	".html":  {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".htm":   {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".xhtml": {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".mhtml": {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".xml":   {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".js":    {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".mjs":   {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".css":   {control: "public, max-age=31536000, immutable", disposition: "attachment"},
+	".json":  {control: "public, max-age=31536000, immutable", disposition: "attachment"},
 	".yaml":  {control: "public, max-age=31536000, immutable"},
 	".yml":   {control: "public, max-age=31536000, immutable"},
 	".csv":   {control: "public, max-age=31536000, immutable"},
@@ -98,6 +103,10 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Uploads are untrusted, potentially active content. Sandbox every served
+	// object and force known document/script formats to download below.
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
+
 	if rule, found := fileRules[ext]; found {
 		w.Header().Set("Cache-Control", rule.control)
 		if rule.disposition != "" {
@@ -105,10 +114,6 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		w.Header().Set("Cache-Control", "public, max-age=3600")
-	}
-
-	if ownerID != "" {
-		w.Header().Set("X-Owner", ownerID)
 	}
 
 	f, err := os.Open(disk) // #nosec G304 -- disk is validated for absolute directory containment by resolveUpload
@@ -265,7 +270,7 @@ func (s *server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		"owner_id", internal.SanitizeLog(ownerID),
 		"actor_id", internal.SanitizeLog(rec.ID),
 		"actor_label", internal.SanitizeLog(rec.Label),
-		"ip", internal.SanitizeLog(clientIP(r)),
+		"ip", internal.SanitizeLog(clientIP(r, s.cfg.TrustProxyHeaders)),
 	)
 	w.WriteHeader(http.StatusNoContent)
 }
