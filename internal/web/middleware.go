@@ -50,7 +50,7 @@ func limitFormBodies(next http.Handler) http.Handler {
 // WriteTimeout on potentially long streamed uploads.
 func (s *server) requestDeadline(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !(r.Method == http.MethodPost && r.URL.Path == "/") && s.cfg.RequestTimeout > 0 {
+		if (r.Method != http.MethodPost || r.URL.Path != "/") && s.cfg.RequestTimeout > 0 {
 			_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(s.cfg.RequestTimeout))
 		}
 		next.ServeHTTP(w, r)

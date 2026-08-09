@@ -52,7 +52,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	quotaLimited := budget < cfg.MaxBytes
-	defer s.store.CancelUpload(rec.ID, reservation)
+	defer func() { _ = s.store.CancelUpload(rec.ID, reservation) }()
 
 	// Hard cap on the request body before touching the multipart parser.
 	r.Body = http.MaxBytesReader(w, r.Body, budget)
@@ -84,6 +84,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	entry := internal.UploadEntry{Name: name, Size: n, UploadedAt: time.Now().UTC()}
 	if err := s.store.CommitUpload(rec.ID, reservation, entry); err != nil {
 		disk := filepath.Join(cfg.Dir, rec.ID, name)
+		// #nosec G703 -- disk is constructed from authenticated token ID and generated filename
 		if removeErr := os.Remove(disk); removeErr != nil && !os.IsNotExist(removeErr) {
 			slog.Error("remove uncommitted upload error", "id", rec.ID, "name", name, "error", removeErr)
 		}
