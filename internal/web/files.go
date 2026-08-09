@@ -72,6 +72,20 @@ var gzipExts = map[string]bool{
 	".conf": true, ".sh": true, ".svg": true,
 }
 
+// isSafeInlineMedia returns true for standard raster images, audio, and video
+// formats that do not contain active executable scripts and are safe to render
+// inline in browser native viewers without sandbox restrictions.
+func isSafeInlineMedia(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp",
+		".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic",
+		".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv",
+		".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac":
+		return true
+	}
+	return false
+}
+
 // handleFileServer serves uploaded files from cfg.Dir. When STRIP_EXTENSION is
 // active it probes for extension variants so a URL like /abc resolves to abc.png
 // on disk. Cache-Control and Content-Disposition reflect the file category.
@@ -103,9 +117,14 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Uploads are untrusted, potentially active content. Sandbox every served
-	// object and force known document/script formats to download below.
-	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
+	// Uploads are untrusted, potentially active content. Sandbox dangerous
+	// formats to prevent script execution, but allow standard media files
+	// (images/video/audio) to render properly in browser native viewers.
+	if isSafeInlineMedia(ext) {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'")
+	} else {
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
+	}
 
 	if rule, found := fileRules[ext]; found {
 		w.Header().Set("Cache-Control", rule.control)

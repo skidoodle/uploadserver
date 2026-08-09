@@ -1231,6 +1231,43 @@ func TestDangerousUploadServedAsAttachment(t *testing.T) {
 	}
 }
 
+func TestMediaUploadServedWithMediaCSP(t *testing.T) {
+	_, h, secret := newTestServer(t)
+	// Test video file
+	uploadedVid := upload(t, h, secret, "file", "clip.mp4", "fake video data")
+	if uploadedVid.Code != http.StatusOK {
+		t.Fatalf("upload mp4 status = %d", uploadedVid.Code)
+	}
+	vidName := strings.TrimSpace(uploadedVid.Body.String())
+	vidName = vidName[strings.LastIndexByte(vidName, '/')+1:]
+	recVid := httptest.NewRecorder()
+	h.ServeHTTP(recVid, httptest.NewRequest(http.MethodGet, "/"+vidName, nil))
+	vidCSP := recVid.Header().Get("Content-Security-Policy")
+	if strings.Contains(vidCSP, "sandbox") {
+		t.Errorf("video CSP must not contain sandbox, got %q", vidCSP)
+	}
+	if !strings.Contains(vidCSP, "media-src") {
+		t.Errorf("video CSP must contain media-src, got %q", vidCSP)
+	}
+
+	// Test image file
+	uploadedImg := upload(t, h, secret, "file", "photo.png", "fake image data")
+	if uploadedImg.Code != http.StatusOK {
+		t.Fatalf("upload png status = %d", uploadedImg.Code)
+	}
+	imgName := strings.TrimSpace(uploadedImg.Body.String())
+	imgName = imgName[strings.LastIndexByte(imgName, '/')+1:]
+	recImg := httptest.NewRecorder()
+	h.ServeHTTP(recImg, httptest.NewRequest(http.MethodGet, "/"+imgName, nil))
+	imgCSP := recImg.Header().Get("Content-Security-Policy")
+	if strings.Contains(imgCSP, "sandbox") {
+		t.Errorf("image CSP must not contain sandbox, got %q", imgCSP)
+	}
+	if !strings.Contains(imgCSP, "img-src") {
+		t.Errorf("image CSP must contain img-src, got %q", imgCSP)
+	}
+}
+
 func TestMediaManagement_PurgeAndAccountSelfDelete(t *testing.T) {
 	srv, h, adminSecret := newTestServer(t)
 
