@@ -1,21 +1,31 @@
+# syntax=docker/dockerfile:1
 FROM golang:1.26.5-alpine AS build
+ENV GOTOOLCHAIN=local
 WORKDIR /src
+
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+    go mod download && go mod verify
+
 COPY main.go ./
 COPY internal/ ./internal/
+
+ARG TARGETOS
+ARG TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOFLAGS=-trimpath \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOFLAGS=-trimpath \
     go build -ldflags="-s -w" -o /uploadserver .
+
 RUN mkdir -p /skel/data /skel/state
 
 FROM scratch
+LABEL org.opencontainers.image.source="https://github.com/skidoodle/uploadserver"
 USER 1000:1000
 COPY --chown=1000:1000 --from=build /skel/data /data
 COPY --chown=1000:1000 --from=build /skel/state /state
 COPY --from=build /uploadserver /uploadserver
+VOLUME ["/data", "/state"]
 EXPOSE 8080
 ENV LISTEN_ADDR=":8080" UPLOAD_DIR="/data" TOKEN_STORE="/state/tokens.db"
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 CMD ["/uploadserver", "healthcheck"]

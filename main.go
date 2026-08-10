@@ -21,6 +21,11 @@ func main() {
 		return
 	}
 
+	if os.Args[1] == "-v" || os.Args[1] == "--version" {
+		fmt.Println(internal.VersionString())
+		return
+	}
+
 	switch os.Args[1] {
 	case "run":
 		if err := web.Run(); err != nil {

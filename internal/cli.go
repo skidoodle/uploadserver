@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -45,7 +44,7 @@ func RunTokenCLI(args []string) (err error) {
 	}
 
 	if args[0] == "version" {
-		fmt.Printf("uploadserver v1.0.0 (%s %s/%s)\n", runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		fmt.Println(VersionString())
 		return nil
 	}
 
