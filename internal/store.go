@@ -248,9 +248,16 @@ func migrateUploadEntries(tx *bolt.Tx) error {
 	return nil
 }
 
-// Close releases the database file. The server defers it; the CLI closes after
-// each command so the file is free again the moment the process exits.
+// Close closes the underlying bbolt database.
 func (s *TokenStore) Close() error { return s.db.Close() }
+
+// Path returns the filesystem path of the underlying bbolt database file.
+func (s *TokenStore) Path() string {
+	if s == nil || s.db == nil {
+		return ""
+	}
+	return s.db.Path()
+}
 
 // putRecord serializes a record to its bucket key within tx.
 func putRecord(tx *bolt.Tx, r *TokenRecord) error {

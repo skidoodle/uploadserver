@@ -71,6 +71,15 @@ func Run() (err error) {
 	purgeSched.Start()
 	defer purgeSched.Stop()
 
+	// Start control socket IPC server for live CLI commands
+	ipcServer, err := internal.StartIPCServer(cfg.StorePath, store, cfg)
+	if err != nil {
+		slog.Warn("failed to start control socket ipc server", "error", err)
+	} else if ipcServer != nil {
+		defer func() { _ = ipcServer.Close() }()
+		slog.Info("control socket listening", "path", ipcServer.SocketPath())
+	}
+
 	// Graceful shutdown on SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -89,6 +98,9 @@ func Run() (err error) {
 	case <-ctx.Done():
 		stop() // restore default handling so a second signal force-quits
 		slog.Info("shutting down")
+		if ipcServer != nil {
+			_ = ipcServer.Close()
+		}
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		return httpSrv.Shutdown(shutdownCtx)

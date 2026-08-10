@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"uploadserver/internal"
@@ -16,17 +17,23 @@ import (
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug})))
 
-	if len(os.Args) < 2 || os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help" {
+	args := os.Args[1:]
+	base := strings.TrimSuffix(filepath.Base(os.Args[0]), filepath.Ext(os.Args[0]))
+	if base != "uploadserver" && base != "main" {
+		args = append([]string{base}, args...)
+	}
+
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		fmt.Println(internal.CLIUsage)
 		return
 	}
 
-	if os.Args[1] == "-v" || os.Args[1] == "--version" {
+	if args[0] == "-v" || args[0] == "--version" {
 		fmt.Println(internal.VersionString())
 		return
 	}
 
-	switch os.Args[1] {
+	switch args[0] {
 	case "run":
 		if err := web.Run(); err != nil {
 			slog.Error("server run error", "error", err)
@@ -66,12 +73,12 @@ func main() {
 		}
 		os.Exit(0)
 	case "list", "add", "rm", "disable", "enable", "limit", "global", "scan", "dump", "reset", "info", "prune", "export", "import", "migrate", "version":
-		if err := internal.RunTokenCLI(os.Args[1:]); err != nil {
+		if err := internal.RunTokenCLI(args); err != nil {
 			slog.Error("cli command error", "error", err)
 			os.Exit(1)
 		}
 	default:
-		slog.Error("unknown command", "command", internal.SanitizeLog(os.Args[1]))
+		slog.Error("unknown command", "command", internal.SanitizeLog(args[0]))
 		fmt.Println(internal.CLIUsage)
 		os.Exit(1)
 	}

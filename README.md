@@ -57,11 +57,7 @@ uploadserver: listening on :8080, storing uploads in ./data
 ```
 
 Make an upload token for ShareX from the dashboard: open the server's URL and
-log in with the root token. The CLI does the same, but only while the server is
-stopped — the token store is a bbolt database and the running server holds it
-open, so a CLI command run alongside it exits with a "locked" message. Manage
-tokens through the dashboard while the server is up, and reach for the CLI when
-it's down:
+log in with the root token. Or make one from the CLI:
 
 ```console
 $ uploadserver add --label laptop --role upload
@@ -90,15 +86,21 @@ usage: uploadserver <command> [<args>]
 Commands:
   run                        Start the web server
   list                       List all tokens, with usage and quotas
+  info <id>                  Show detailed status and usage for a single token
   add [--label L] [--role R] Create a new token
   rm <id>                    Delete a token
   disable <id>               Disable a token
   enable <id>                Enable a token
-  limit <id> [flags]         Set upload quotas for a token
+  limit <id> [flags]         Set upload quotas for a token (use --help for flags)
   global [flags]             Show or set the server-wide default quota
   scan [--token ID]          Find untracked files on disk and optionally import them
+  migrate --token <id>       Move flat uploads into per-user directories
+  prune [--days N] [--dry-run] Purge temporary upload files older than N days
+  export [--out file.json]   Export token store metadata to JSON
+  import [--in file.json]    Import token store metadata from JSON
   dump                       Decode the binary store and print everything in it
   reset                      Delete all tokens and reset store
+  version                    Show version and runtime info
 ```
 
 `limit` and `global` take the quota flags:
@@ -115,32 +117,16 @@ wipe its caps. Only the flags you pass get changed.
 
 ### Running CLI commands with Docker
 
-Because `uploadserver` holds an exclusive database lock while running, CLI commands (`scan`, `add`, `limit`, etc.) must be run in a temporary container while the main server container is stopped.
-
-**With Docker Compose:**
+You can run CLI commands straight against the running container:
 
 ```sh
-# Stop the server container to release the database lock
-docker compose stop uploadserver
-
-# Run any CLI command (e.g. scan)
-docker compose run --rm uploadserver scan
-
-# Restart the server container
-docker compose start uploadserver
+docker compose exec uploadserver scan
 ```
 
-**With plain Docker:**
+If the container is stopped, `docker compose run` works just as well:
 
 ```sh
-# Stop the main container
-docker stop uploadserver
-
-# Run the CLI command in a temporary container sharing volumes
-docker run --rm --volumes-from uploadserver ghcr.io/skidoodle/uploadserver:latest scan
-
-# Restart the main container
-docker start uploadserver
+docker compose run --rm uploadserver scan
 ```
 
 ### Scanning for untracked files
@@ -187,6 +173,7 @@ Everything is set through environment variables:
 | `TRUST_PROXY_HEADERS` | Trust `X-Forwarded-Proto` and `X-Forwarded-For` from your reverse proxy | `false` |
 | `REQUEST_TIMEOUT` | Deadline for non-upload HTTP responses (Go duration) | `30s` |
 | `PURGE_GRACE_PERIOD` | Safety delay / grace period before scheduled media purges execute (`24h`, `7d`, or `0s` to disable) | `24h` |
+| `CONTROL_SOCKET` | Control socket path (or `off` to disable) | `./state/control.sock` |
 
 Leave `TRUST_PROXY_HEADERS=false` when clients can connect directly. Enable it only
 when a trusted reverse proxy overwrites forwarded headers. Streamed uploads are

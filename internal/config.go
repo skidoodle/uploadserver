@@ -22,6 +22,7 @@ type Config struct {
 	TrustProxyHeaders bool          // whether forwarded scheme/client headers are trusted
 	RequestTimeout    time.Duration // deadline for non-upload HTTP requests
 	PurgeGracePeriod  time.Duration // delay before scheduled media purges are executed (0 disables grace period)
+	ControlSocket     string        // path to control socket IPC (or "off" to disable)
 }
 
 // LoadConfig resolves the configuration from environment variables.
@@ -36,6 +37,7 @@ func LoadConfig() (Config, error) {
 		StripExtension:    Env("STRIP_EXTENSION", "false") == "true",
 		ServeFiles:        Env("SERVE_FILES", "false") == "true",
 		TrustProxyHeaders: Env("TRUST_PROXY_HEADERS", "false") == "true",
+		ControlSocket:     Env("CONTROL_SOCKET", ""),
 	}
 
 	lenStr := Env("RANDOM_NAME_LENGTH", "32")
