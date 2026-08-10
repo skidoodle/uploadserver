@@ -12,10 +12,13 @@ COPY internal/ ./internal/
 
 ARG TARGETOS
 ARG TARGETARCH
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH GOFLAGS=-trimpath \
-    go build -ldflags="-s -w" -o /uploadserver .
+    go build -ldflags="-s -w -X uploadserver/internal.Version=${VERSION} -X uploadserver/internal.Commit=${COMMIT} -X uploadserver/internal.Date=${DATE}" -o /uploadserver .
 
 RUN mkdir -p /skel/data /skel/state
 
