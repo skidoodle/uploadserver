@@ -9,10 +9,23 @@
 	</div>
 </fieldset>
 
+{{ if .Notice }}
+	<div class="notice">{{ .Notice }}</div>
+{{ end }}
 {{ if .Error }}
 	<p id="msg" class="err">{{ .Error }}</p>
 {{ else if .IsAdmin }}
 	<p id="msg">{{ .Count }} token(s) &#8212; <a href="/_/users">Manage Users</a></p>
+{{ end }}
+
+{{ if .PendingPurge }}
+	<div class="purge-banner">
+		<span>Media purge scheduled in <strong>{{ timeUntil .PendingPurge.PurgeAt }}</strong> ({{ fmtDate .PendingPurge.PurgeAt }})</span>
+		<form method="POST" action="/_/tokens/{{ .CurrentToken.ID }}/cancel-purge">
+			<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+			<button type="submit" class="act">Cancel purge</button>
+		</form>
+	</div>
 {{ end }}
 
 {{ if .Secret }}
@@ -373,7 +386,9 @@
 				<a href="/_/uploads/{{ .CurrentToken.ID }}" class="act-btn">View My Files</a>
 				<button type="button" class="act" commandfor="renamedlg" command="show-modal" data-rename-id="{{ .CurrentToken.ID }}"
 					data-label="{{ .CurrentToken.Label }}">Rename Label</button>
-				<button type="button" class="act danger" commandfor="purgedlg" command="show-modal" data-purge-id="{{ .CurrentToken.ID }}">Purge All Media</button>
+				{{ if not .PendingPurge }}
+					<button type="button" class="act danger" commandfor="purgedlg" command="show-modal" data-purge-id="{{ .CurrentToken.ID }}">Purge All Media</button>
+				{{ end }}
 				<button type="button" class="act danger" commandfor="dlg" command="show-modal" data-delete-id="{{ .CurrentToken.ID }}" data-is-self="true">Delete Account</button>
 			</div>
 		</fieldset>
@@ -396,9 +411,15 @@
 	<form method="POST" id="purgeForm" action="">
 		<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 		<p id="purgedlgmsg"></p>
+		<label class="dlg-label">Type <code id="purgeTargetPhrase"></code> to confirm
+			<input type="text" name="confirm_phrase" id="purgeConfirmInput"
+				autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+				onpaste="return false;" ondrop="return false;" required>
+		</label>
+		<div id="purgePasteWarning" class="label-err" hidden>pasting is disabled</div>
 		<div class="bar bar-end">
 			<button type="button" commandfor="purgedlg" command="close">Cancel</button>
-			<button type="submit" class="danger">Purge Media</button>
+			<button type="button" class="danger" id="purgeSubmitBtn" commandfor="purgedlg" command="--submit-purge" disabled>Purge</button>
 		</div>
 	</form>
 </dialog>

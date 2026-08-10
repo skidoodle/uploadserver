@@ -56,21 +56,26 @@ type uploadsPageData struct {
 	IsAdmin         bool
 	IsSelf          bool
 	Error           string
+	Notice          string
+	PendingPurge    *internal.PendingPurge
 }
 
 // adminPageData is the template data for the admin page.
 type adminPageData struct {
-	LoggedIn     bool
-	IsAdmin      bool
-	IsRoot       bool
-	CurrentToken *internal.TokenRecord
-	Tokens       []internal.TokenRecord
-	Count        int
-	Global       internal.Limits // server-wide default quota
-	Error        string
-	Secret       *newTokenSecret // non-nil when a token was just created
-	CSRF         string
-	InvPolicy    internal.InvitePolicy
+	LoggedIn          bool
+	IsAdmin           bool
+	IsRoot            bool
+	CurrentToken      *internal.TokenRecord
+	Tokens            []internal.TokenRecord
+	Count             int
+	Global            internal.Limits // server-wide default quota
+	Error             string
+	Notice            string
+	Secret            *newTokenSecret // non-nil when a token was just created
+	CSRF              string
+	InvPolicy         internal.InvitePolicy
+	PendingPurge      *internal.PendingPurge
+	PendingPurgeCount int
 }
 
 // usersPageData is the template data for the paginated users management page.
@@ -90,8 +95,10 @@ type usersPageData struct {
 	Query           string
 	Global          internal.Limits
 	Error           string
+	Notice          string
 	Secret          *newTokenSecret
 	InvPolicy       internal.InvitePolicy
+	PendingPurges   map[string]*internal.PendingPurge
 }
 
 // userProfilePageData is the template data for viewing a specific user profile page.
@@ -105,6 +112,8 @@ type userProfilePageData struct {
 	Global       internal.Limits
 	CSRF         string
 	Error        string
+	Notice       string
+	PendingPurge *internal.PendingPurge
 }
 
 // newTokenSecret holds the one-time secret displayed after creating a token.
@@ -249,6 +258,64 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 		}
 		return template.URL(s) // #nosec G203 -- Safe internal pagination query string
 	},
+	"timeUntil": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		d := time.Until(t)
+		if d <= 0 {
+			return "due now"
+		}
+		d = d.Round(time.Minute)
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if h >= 24 {
+			days := h / 24
+			remH := h % 24
+			if remH > 0 {
+				return fmt.Sprintf("%dd %dh", days, remH)
+			}
+			if days == 1 {
+				return "1 day"
+			}
+			return fmt.Sprintf("%d days", days)
+		}
+		if h > 0 {
+			if m > 0 {
+				return fmt.Sprintf("%dh %dm", h, m)
+			}
+			if h == 1 {
+				return "1 hour"
+			}
+			return fmt.Sprintf("%d hours", h)
+		}
+		if m > 0 {
+			return fmt.Sprintf("%d minutes", m)
+		}
+		return "< 1 minute"
+	},
+	"formatDuration": func(d time.Duration) string {
+		d = d.Round(time.Minute)
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if h >= 24 && h%24 == 0 {
+			days := h / 24
+			if days == 1 {
+				return "24 hours"
+			}
+			return fmt.Sprintf("%d days", days)
+		}
+		if h > 0 && m == 0 {
+			if h == 1 {
+				return "1 hour"
+			}
+			return fmt.Sprintf("%d hours", h)
+		}
+		if h > 0 && m > 0 {
+			return fmt.Sprintf("%dh %dm", h, m)
+		}
+		return d.String()
+	},
 }).Parse(uploadsHTML))
 
 // usersTmpl is the template for the users list page.
@@ -264,6 +331,42 @@ var usersTmpl = template.Must(template.New("users").Funcs(template.FuncMap{
 	"comma":      internal.Comma,
 	"effective":  internal.EffectiveLimits,
 	"summary":    internal.SummarizeLimits,
+	"timeUntil": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		d := time.Until(t)
+		if d <= 0 {
+			return "due now"
+		}
+		d = d.Round(time.Minute)
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if h >= 24 {
+			days := h / 24
+			remH := h % 24
+			if remH > 0 {
+				return fmt.Sprintf("%dd %dh", days, remH)
+			}
+			if days == 1 {
+				return "1 day"
+			}
+			return fmt.Sprintf("%d days", days)
+		}
+		if h > 0 {
+			if m > 0 {
+				return fmt.Sprintf("%dh %dm", h, m)
+			}
+			if h == 1 {
+				return "1 hour"
+			}
+			return fmt.Sprintf("%d hours", h)
+		}
+		if m > 0 {
+			return fmt.Sprintf("%d minutes", m)
+		}
+		return "< 1 minute"
+	},
 	"pageURL": func(page int, query string) template.URL {
 		s := fmt.Sprintf("?page=%d", page)
 		if query != "" {
@@ -307,6 +410,42 @@ var adminTmpl = template.Must(template.New("admin").Funcs(template.FuncMap{
 	"comma":      internal.Comma,
 	"effective":  internal.EffectiveLimits,
 	"summary":    internal.SummarizeLimits,
+	"timeUntil": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		d := time.Until(t)
+		if d <= 0 {
+			return "due now"
+		}
+		d = d.Round(time.Minute)
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if h >= 24 {
+			days := h / 24
+			remH := h % 24
+			if remH > 0 {
+				return fmt.Sprintf("%dd %dh", days, remH)
+			}
+			if days == 1 {
+				return "1 day"
+			}
+			return fmt.Sprintf("%d days", days)
+		}
+		if h > 0 {
+			if m > 0 {
+				return fmt.Sprintf("%dh %dm", h, m)
+			}
+			if h == 1 {
+				return "1 hour"
+			}
+			return fmt.Sprintf("%d hours", h)
+		}
+		if m > 0 {
+			return fmt.Sprintf("%d minutes", m)
+		}
+		return "< 1 minute"
+	},
 }).Parse(adminHTML))
 
 // userProfileTmpl is the parsed user profile template
@@ -321,6 +460,42 @@ var userProfileTmpl = template.Must(template.New("user_profile").Funcs(template.
 	"comma":      internal.Comma,
 	"effective":  internal.EffectiveLimits,
 	"summary":    internal.SummarizeLimits,
+	"timeUntil": func(t time.Time) string {
+		if t.IsZero() {
+			return ""
+		}
+		d := time.Until(t)
+		if d <= 0 {
+			return "due now"
+		}
+		d = d.Round(time.Minute)
+		h := int(d.Hours())
+		m := int(d.Minutes()) % 60
+		if h >= 24 {
+			days := h / 24
+			remH := h % 24
+			if remH > 0 {
+				return fmt.Sprintf("%dd %dh", days, remH)
+			}
+			if days == 1 {
+				return "1 day"
+			}
+			return fmt.Sprintf("%d days", days)
+		}
+		if h > 0 {
+			if m > 0 {
+				return fmt.Sprintf("%dh %dm", h, m)
+			}
+			if h == 1 {
+				return "1 hour"
+			}
+			return fmt.Sprintf("%d hours", h)
+		}
+		if m > 0 {
+			return fmt.Sprintf("%d minutes", m)
+		}
+		return "< 1 minute"
+	},
 }).Parse(userProfileHTML))
 
 // init initializes the admin template with the login and dashboard HTML

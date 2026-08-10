@@ -53,6 +53,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.RequestTimeout != 30*time.Second {
 		t.Errorf("cfg.RequestTimeout = %s; want 30s", cfg.RequestTimeout)
 	}
+	if cfg.PurgeGracePeriod != 24*time.Hour {
+		t.Errorf("cfg.PurgeGracePeriod = %s; want 24h", cfg.PurgeGracePeriod)
+	}
 }
 
 func TestLoadConfigCustomEnv(t *testing.T) {
@@ -66,6 +69,7 @@ func TestLoadConfigCustomEnv(t *testing.T) {
 	t.Setenv("SERVE_FILES", "true")
 	t.Setenv("TRUST_PROXY_HEADERS", "true")
 	t.Setenv("REQUEST_TIMEOUT", "45s")
+	t.Setenv("PURGE_GRACE_PERIOD", "7d")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -101,6 +105,9 @@ func TestLoadConfigCustomEnv(t *testing.T) {
 	}
 	if cfg.RequestTimeout != 45*time.Second {
 		t.Errorf("cfg.RequestTimeout = %s; want 45s", cfg.RequestTimeout)
+	}
+	if cfg.PurgeGracePeriod != 7*24*time.Hour {
+		t.Errorf("cfg.PurgeGracePeriod = %s; want 168h", cfg.PurgeGracePeriod)
 	}
 }
 

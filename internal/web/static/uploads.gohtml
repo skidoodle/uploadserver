@@ -19,8 +19,21 @@
 			<span>{{ .Token.ID }}</span>
 		</nav>
 
+		{{ if .Notice }}
+			<div class="notice">{{ .Notice }}</div>
+		{{ end }}
 		{{ if .Error }}
 			<p id="msg" class="err">{{ .Error }}</p>
+		{{ end }}
+
+		{{ if .PendingPurge }}
+			<div class="purge-banner">
+				<span>Media purge scheduled in <strong>{{ timeUntil .PendingPurge.PurgeAt }}</strong> ({{ fmtDate .PendingPurge.PurgeAt }})</span>
+				<form method="POST" action="/_/tokens/{{ .Token.ID }}/cancel-purge">
+					<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+					<button type="submit" class="act">Cancel purge</button>
+				</form>
+			</div>
 		{{ end }}
 
 		<div class="toolbar-bar">
@@ -30,7 +43,7 @@
 				{{ else }}
 					<span class="stat"><strong>{{ .TotalFiles }}</strong> file{{ if ne .TotalFiles 1 }}s{{ end }}</span>
 				{{ end }}
-				{{ if or $.IsAdmin $.IsSelf }}
+				{{ if and (or $.IsAdmin $.IsSelf) (not .PendingPurge) }}
 					<button type="button" class="act danger" commandfor="purgedlg" command="show-modal" data-purge-id="{{ .Token.ID }}">Purge All Media</button>
 				{{ end }}
 			</div>
@@ -166,9 +179,15 @@
 			<form method="POST" id="purgeForm" action="">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p id="purgedlgmsg"></p>
+				<label class="dlg-label">Type <code id="purgeTargetPhrase"></code> to confirm
+					<input type="text" name="confirm_phrase" id="purgeConfirmInput"
+						autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+						onpaste="return false;" ondrop="return false;" required>
+				</label>
+				<div id="purgePasteWarning" class="label-err" hidden>pasting is disabled</div>
 				<div class="bar bar-end">
 					<button type="button" commandfor="purgedlg" command="close">Cancel</button>
-					<button type="submit" class="danger">Purge Media</button>
+					<button type="button" class="danger" id="purgeSubmitBtn" commandfor="purgedlg" command="--submit-purge" disabled>Purge</button>
 				</div>
 			</form>
 		</dialog>

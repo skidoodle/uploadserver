@@ -64,6 +64,13 @@ func Run() (err error) {
 	inviteSched.Start()
 	defer inviteSched.Stop()
 
+	// Start background purge scheduler for executing scheduled media purges.
+	purgeSched := internal.NewPurgeScheduler(store, func(tokenID string) error {
+		return srv.purgeUserMedia(tokenID, true)
+	})
+	purgeSched.Start()
+	defer purgeSched.Stop()
+
 	// Graceful shutdown on SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

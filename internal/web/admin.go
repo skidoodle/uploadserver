@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"uploadserver/internal"
 )
 
@@ -28,6 +29,7 @@ const (
 	csrfCookieName  = "csrf"
 	flashSecretName = "flash_secret"
 	flashErrorName  = "flash_error"
+	flashNoticeName = "flash_notice"
 )
 
 // setCookie writes a state cookie hardened for an admin surface: HttpOnly and
@@ -158,7 +160,7 @@ func (s *server) requireRootCookie(w http.ResponseWriter, r *http.Request) (inte
 }
 
 func (s *server) clearSessionCookies(w http.ResponseWriter, r *http.Request) {
-	for _, name := range []string{adminCookieName, csrfCookieName, flashSecretName, flashErrorName} {
+	for _, name := range []string{adminCookieName, csrfCookieName, flashSecretName, flashErrorName, flashNoticeName} {
 		s.clearCookie(w, r, name)
 	}
 }
@@ -181,7 +183,13 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 			data.IsAdmin = internal.IsAdmin(rec.Role)
 			data.IsRoot = (rec.Role == internal.RoleRoot)
 			data.CurrentToken = &rec
+			if p, ok := s.store.GetPendingPurge(rec.ID); ok {
+				data.PendingPurge = &p
+			}
 			if data.IsAdmin {
+				if purges, err := s.store.ListPendingPurges(); err == nil {
+					data.PendingPurgeCount = len(purges)
+				}
 				all := s.store.List()
 				data.Tokens = all[:0:0]
 				for _, t := range all {
@@ -216,6 +224,12 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
+		}
+	}
+	if c, err := r.Cookie(flashNoticeName); !sessionExpired && err == nil {
+		s.clearCookie(w, r, flashNoticeName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			data.Notice = string(decoded)
 		}
 	}
 
@@ -422,7 +436,7 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 }
 
 // handlePurgeUserMediaSSR purges all media for a token via form submit.
-// It requires an admin token and validates the CSRF token before purging.
+// It requires an admin token or self and validates the CSRF token and confirmation phrase before purging.
 func (s *server) handlePurgeUserMediaSSR(w http.ResponseWriter, r *http.Request) {
 	userRec, ok := s.requireSession(w, r)
 	if !ok {
@@ -444,12 +458,78 @@ func (s *server) handlePurgeUserMediaSSR(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if _, exists := s.store.GetPendingPurge(id); exists {
+		s.redirectWithError(w, r, "media purge already scheduled")
+		return
+	}
+
+	phrase := strings.TrimSpace(r.FormValue("confirm_phrase"))
+	expectedPhrase := "PURGE " + id
+	if phrase != expectedPhrase && phrase != "PURGE" && phrase != id {
+		s.redirectWithError(w, r, fmt.Sprintf("invalid confirmation phrase: must type %q", expectedPhrase))
+		return
+	}
+
+	if s.cfg.PurgeGracePeriod > 0 {
+		p, err := s.store.SchedulePurge(id, userRec.ID, s.cfg.PurgeGracePeriod)
+		if err != nil {
+			slog.Error("schedule media purge error", "id", id, "error", err)
+			s.redirectWithError(w, r, "could not schedule media purge")
+			return
+		}
+		slog.Info("media purge scheduled", "id", id, "actor_id", userRec.ID, "purge_at", p.PurgeAt, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+		ref := r.Header.Get("Referer")
+		if isSafeRedirectTarget(ref, r.Host) {
+			http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
+			return
+		}
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
 	if err := s.purgeUserMedia(id, true); err != nil {
 		s.redirectWithError(w, r, "could not purge media")
 		return
 	}
 	slog.Info("media purged", "id", id, "actor_id", userRec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
-	redirect(w, r)
+	s.redirectWithNotice(w, r, "media purged")
+}
+
+// handleCancelPurgeUserMediaSSR cancels a scheduled media purge for a token.
+func (s *server) handleCancelPurgeUserMediaSSR(w http.ResponseWriter, r *http.Request) {
+	userRec, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	if !validateCSRF(r) {
+		s.redirectWithError(w, r, "invalid request")
+		return
+	}
+
+	target, found := s.store.GetRecord(r.PathValue("id"))
+	if !found {
+		s.redirectWithError(w, r, "token not found")
+		return
+	}
+	id := target.ID
+	if !internal.IsAdmin(userRec.Role) && userRec.ID != id {
+		s.redirectWithError(w, r, "forbidden")
+		return
+	}
+
+	cancelled, err := s.store.CancelPendingPurge(id)
+	if err != nil {
+		slog.Error("cancel pending purge error", "id", id, "error", err)
+		s.redirectWithError(w, r, "could not cancel media purge")
+		return
+	}
+	if !cancelled {
+		s.redirectWithError(w, r, "no scheduled purge found")
+		return
+	}
+
+	slog.Info("media purge cancelled", "id", id, "actor_id", userRec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+	s.redirectWithNotice(w, r, "media purge cancelled")
 }
 
 // handleDeleteFileSSR removes a single uploaded file via form submit.
@@ -722,6 +802,7 @@ func (s *server) purgeUserMedia(tokenID string, clearStore bool) error {
 		slog.Error("purge upload history error", "id", tokenID, "error", historyErr)
 		return fmt.Errorf("remove upload history: %w", historyErr)
 	}
+	_, _ = s.store.CancelPendingPurge(tokenID)
 	slog.Info("purged all media", "id", tokenID)
 	return nil
 }
@@ -734,12 +815,68 @@ func (s *server) handlePurgeMedia(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
+	var req struct {
+		ConfirmPhrase string `json:"confirm_phrase"`
+		Force         bool   `json:"force"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" {
+		_ = decodeJSON(w, r, &req, false)
+	}
+	expectedPhrase := "PURGE " + rec.ID
+	if req.ConfirmPhrase != "" && req.ConfirmPhrase != expectedPhrase && req.ConfirmPhrase != "PURGE" && req.ConfirmPhrase != rec.ID {
+		httpError(w, http.StatusBadRequest, fmt.Sprintf("invalid confirmation phrase (must be %q)", expectedPhrase))
+		return
+	}
+
+	if _, exists := s.store.GetPendingPurge(rec.ID); exists && !req.Force {
+		httpError(w, http.StatusConflict, "media purge already scheduled")
+		return
+	}
+
+	if s.cfg.PurgeGracePeriod > 0 && !req.Force {
+		p, err := s.store.SchedulePurge(rec.ID, rec.ID, s.cfg.PurgeGracePeriod)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, "could not schedule media purge")
+			return
+		}
+		slog.Info("media purge scheduled", "id", rec.ID, "actor_id", rec.ID, "purge_at", p.PurgeAt, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":           true,
+			"scheduled":    true,
+			"purged":       rec.ID,
+			"purge_at":     p.PurgeAt.Format(time.RFC3339),
+			"grace_period": s.cfg.PurgeGracePeriod.String(),
+		})
+		return
+	}
+
 	if err := s.purgeUserMedia(rec.ID, true); err != nil {
 		httpError(w, http.StatusInternalServerError, "could not purge media")
 		return
 	}
 	slog.Info("media purged", "id", rec.ID, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "purged": rec.ID})
+}
+
+// handleCancelPurgeMedia allows an authenticated user to cancel their own scheduled purge.
+func (s *server) handleCancelPurgeMedia(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.authenticate(r)
+	if !ok {
+		w.Header().Set("WWW-Authenticate", `Bearer realm="upload"`)
+		httpError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	cancelled, err := s.store.CancelPendingPurge(rec.ID)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "could not cancel media purge")
+		return
+	}
+	if !cancelled {
+		httpError(w, http.StatusNotFound, "no scheduled purge found")
+		return
+	}
+	slog.Info("media purge cancelled", "id", rec.ID, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cancelled": rec.ID})
 }
 
 // handleDeleteAccount lets an authenticated user delete all their uploads and
@@ -788,12 +925,72 @@ func (s *server) handleAdminPurgeUserMedia(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	id := target.ID
+	var req struct {
+		ConfirmPhrase string `json:"confirm_phrase"`
+		Force         bool   `json:"force"`
+	}
+	if r.Header.Get("Content-Type") == "application/json" {
+		_ = decodeJSON(w, r, &req, false)
+	}
+	expectedPhrase := "PURGE " + id
+	if req.ConfirmPhrase != "" && req.ConfirmPhrase != expectedPhrase && req.ConfirmPhrase != "PURGE" && req.ConfirmPhrase != id {
+		httpError(w, http.StatusBadRequest, fmt.Sprintf("invalid confirmation phrase (must be %q)", expectedPhrase))
+		return
+	}
+
+	if _, exists := s.store.GetPendingPurge(id); exists && !req.Force {
+		httpError(w, http.StatusConflict, "media purge already scheduled")
+		return
+	}
+
+	if s.cfg.PurgeGracePeriod > 0 && !req.Force {
+		p, err := s.store.SchedulePurge(id, rec.ID, s.cfg.PurgeGracePeriod)
+		if err != nil {
+			httpError(w, http.StatusInternalServerError, "could not schedule media purge")
+			return
+		}
+		slog.Info("media purge scheduled", "id", id, "actor_id", rec.ID, "purge_at", p.PurgeAt, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":           true,
+			"scheduled":    true,
+			"purged":       id,
+			"purge_at":     p.PurgeAt.Format(time.RFC3339),
+			"grace_period": s.cfg.PurgeGracePeriod.String(),
+		})
+		return
+	}
+
 	if err := s.purgeUserMedia(id, true); err != nil {
 		httpError(w, http.StatusInternalServerError, "could not purge media")
 		return
 	}
 	slog.Info("media purged", "id", id, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "purged": id})
+}
+
+// handleAdminCancelPurgeUserMedia lets an admin cancel a scheduled media purge for a specific user.
+func (s *server) handleAdminCancelPurgeUserMedia(w http.ResponseWriter, r *http.Request) {
+	rec, ok := s.requireAdmin(w, r)
+	if !ok {
+		return
+	}
+	target, found := s.store.GetRecord(r.PathValue("id"))
+	if !found {
+		httpError(w, http.StatusNotFound, "token not found")
+		return
+	}
+	id := target.ID
+	cancelled, err := s.store.CancelPendingPurge(id)
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, "could not cancel media purge")
+		return
+	}
+	if !cancelled {
+		httpError(w, http.StatusNotFound, "no scheduled purge found")
+		return
+	}
+	slog.Info("media purge cancelled", "id", id, "actor_id", rec.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cancelled": id})
 }
 
 // handleSetLabelSSR handles renaming a token via form submit.
@@ -1058,6 +1255,16 @@ func (s *server) redirectWithError(w http.ResponseWriter, r *http.Request, msg s
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func (s *server) redirectWithNotice(w http.ResponseWriter, r *http.Request, msg string) {
+	s.setCookie(w, r, flashNoticeName, base64.URLEncoding.EncodeToString([]byte(msg)), 0)
+	ref := r.Header.Get("Referer")
+	if isSafeRedirectTarget(ref, r.Host) {
+		http.Redirect(w, r, ref, http.StatusSeeOther) // #nosec G710 -- Target URL is validated by isSafeRedirectTarget
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
 // handleUserUploads renders the per-token upload history page.
 // It requires the admin cookie and a valid CSRF token.
 func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
@@ -1142,10 +1349,20 @@ func (s *server) handleUserUploads(w http.ResponseWriter, r *http.Request) {
 		IsSelf:          userRec.ID == tokenID,
 	}
 
+	if p, ok := s.store.GetPendingPurge(tokenID); ok {
+		data.PendingPurge = &p
+	}
+
 	if c, err := r.Cookie(flashErrorName); err == nil {
 		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
+		}
+	}
+	if c, err := r.Cookie(flashNoticeName); err == nil {
+		s.clearCookie(w, r, flashNoticeName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			data.Notice = string(decoded)
 		}
 	}
 
@@ -1222,6 +1439,14 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		InvPolicy:       s.store.InvitePolicy(),
 	}
 
+	if purges, err := s.store.ListPendingPurges(); err == nil {
+		pMap := make(map[string]*internal.PendingPurge, len(purges))
+		for i := range purges {
+			pMap[purges[i].TokenID] = &purges[i]
+		}
+		data.PendingPurges = pMap
+	}
+
 	// Read flash cookies
 	if c, err := r.Cookie(flashSecretName); err == nil {
 		s.clearCookie(w, r, flashSecretName)
@@ -1236,6 +1461,12 @@ func (s *server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
+		}
+	}
+	if c, err := r.Cookie(flashNoticeName); err == nil {
+		s.clearCookie(w, r, flashNoticeName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			data.Notice = string(decoded)
 		}
 	}
 
@@ -1275,10 +1506,20 @@ func (s *server) handleAdminUserProfilePage(w http.ResponseWriter, r *http.Reque
 		CSRF:         csrf,
 	}
 
+	if p, ok := s.store.GetPendingPurge(targetID); ok {
+		data.PendingPurge = &p
+	}
+
 	if c, err := r.Cookie(flashErrorName); err == nil {
 		s.clearCookie(w, r, flashErrorName)
 		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
 			data.Error = string(decoded)
+		}
+	}
+	if c, err := r.Cookie(flashNoticeName); err == nil {
+		s.clearCookie(w, r, flashNoticeName)
+		if decoded, derr := base64.URLEncoding.DecodeString(c.Value); derr == nil {
+			data.Notice = string(decoded)
 		}
 	}
 

@@ -186,6 +186,7 @@ Everything is set through environment variables:
 | `SERVE_FILES` | Serve uploaded files | `false` |
 | `TRUST_PROXY_HEADERS` | Trust `X-Forwarded-Proto` and `X-Forwarded-For` from your reverse proxy | `false` |
 | `REQUEST_TIMEOUT` | Deadline for non-upload HTTP responses (Go duration) | `30s` |
+| `PURGE_GRACE_PERIOD` | Safety delay / grace period before scheduled media purges execute (`24h`, `7d`, or `0s` to disable) | `24h` |
 
 Leave `TRUST_PROXY_HEADERS=false` when clients can connect directly. Enable it only
 when a trusted reverse proxy overwrites forwarded headers. Streamed uploads are

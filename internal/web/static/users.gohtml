@@ -30,6 +30,9 @@
 			</div>
 		{{ end }}
 
+		{{ if .Notice }}
+			<div class="notice">{{ .Notice }}</div>
+		{{ end }}
 		{{ if .Error }}
 			<p id="msg" class="err">{{ .Error }}</p>
 		{{ end }}
@@ -88,11 +91,11 @@
 				</thead>
 				<tbody>
 					{{ range .Tokens }}
-						<tr class="{{ if .Disabled }}off{{ end }} {{ if eq .ID $.CurrentToken.ID }}me{{ end }}">
+						<tr class="{{ if .Disabled }}off{{ end }} {{ if eq .ID $.CurrentToken.ID }}me{{ end }} {{ if index $.PendingPurges .ID }}purging{{ end }}">
 							<td data-label="ID"><a href="/_/user/{{ .ID }}" class="id-link"><code>{{ .ID }}</code></a></td>
 							<td data-label="Label">{{ .Label }}</td>
 							<td data-label="Role">{{ .Role }}</td>
-							<td data-label="Status">{{ if .Disabled }}disabled{{ else }}active{{ end }}</td>
+							<td data-label="Status">{{ if .Disabled }}disabled{{ else }}active{{ end }}{{ if index $.PendingPurges .ID }}, purging{{ end }}</td>
 							<td data-label="Created">{{ fmtDate .CreatedAt }}</td>
 							<td data-label="Last used">{{ with fmtDate .LastUsed }}{{ . }}{{ else }}<span class="dim">never</span>{{ end }}</td>
 							<td data-label="Usage" class="usage">{{ $eff := effective .Limits $.Global .BypassesGlobal }}

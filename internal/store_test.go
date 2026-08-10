@@ -556,3 +556,73 @@ func TestStore_HashStripping(t *testing.T) {
 		t.Errorf("records() internal should preserve secret hash")
 	}
 }
+
+func TestPendingPurge(t *testing.T) {
+	dir := t.TempDir()
+	store, err := OpenStore(filepath.Join(dir, "tokens.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	id, _, err := store.Add("alice", RoleUpload)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// 1. None pending
+	if _, ok := store.GetPendingPurge(id); ok {
+		t.Fatal("expected no pending purge initially")
+	}
+
+	// 2. Schedule purge
+	p, err := store.SchedulePurge(id, id, 1*time.Hour)
+	if err != nil {
+		t.Fatalf("SchedulePurge: %v", err)
+	}
+	if p.TokenID != id {
+		t.Errorf("got TokenID %q, want %q", p.TokenID, id)
+	}
+
+	gotP, ok := store.GetPendingPurge(id)
+	if !ok {
+		t.Fatal("expected pending purge to be found")
+	}
+	if gotP.TokenID != id {
+		t.Errorf("got %q, want %q", gotP.TokenID, id)
+	}
+
+	list, err := store.ListPendingPurges()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("ListPendingPurges: len=%d, err=%v", len(list), err)
+	}
+
+	// 3. Cancel purge
+	cancelled, err := store.CancelPendingPurge(id)
+	if err != nil || !cancelled {
+		t.Fatalf("CancelPendingPurge: cancelled=%v, err=%v", cancelled, err)
+	}
+	if _, ok := store.GetPendingPurge(id); ok {
+		t.Fatal("expected pending purge to be deleted")
+	}
+
+	// 4. Process due purges
+	_, err = store.SchedulePurge(id, id, -1*time.Minute)
+	if err != nil {
+		t.Fatalf("SchedulePurge: %v", err)
+	}
+	var executed []string
+	count, err := store.ProcessDuePurges(time.Now().UTC(), func(tokenID string) error {
+		executed = append(executed, tokenID)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ProcessDuePurges: %v", err)
+	}
+	if count != 1 || len(executed) != 1 || executed[0] != id {
+		t.Errorf("executed count=%d, list=%v", count, executed)
+	}
+	if _, ok := store.GetPendingPurge(id); ok {
+		t.Fatal("expected pending purge to be removed after execution")
+	}
+}

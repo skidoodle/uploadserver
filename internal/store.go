@@ -55,7 +55,16 @@ var (
 	uploadBucket    = []byte("uploads")
 	authBucket      = []byte("auth_index")
 	pendingBucket   = []byte("pending_grants")
+	purgeBucket     = []byte("pending_purges")
 )
+
+// PendingPurge represents a scheduled purge of all media for a token.
+type PendingPurge struct {
+	TokenID     string    `json:"token_id"`
+	RequestedAt time.Time `json:"requested_at"`
+	PurgeAt     time.Time `json:"purge_at"`
+	ActorID     string    `json:"actor_id"`
+}
 
 // InvitePolicy holds the server-wide invite distribution configuration.
 type InvitePolicy struct {
@@ -157,6 +166,9 @@ func OpenStore(path string) (*TokenStore, error) {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(pendingBucket); err != nil {
+			return err
+		}
+		if _, err := tx.CreateBucketIfNotExists(purgeBucket); err != nil {
 			return err
 		}
 		if _, err := tx.CreateBucketIfNotExists(metaBucket); err != nil {
@@ -409,6 +421,12 @@ func (s *TokenStore) Remove(id string) error {
 			if err := tx.Bucket(authBucket).Delete(key); err != nil {
 				return err
 			}
+		}
+		if pb := tx.Bucket(purgeBucket); pb != nil {
+			_ = pb.Delete([]byte(id))
+		}
+		if gb := tx.Bucket(pendingBucket); gb != nil {
+			_ = gb.Delete([]byte(id))
 		}
 		return tx.Bucket(tokenBucket).Delete([]byte(id))
 	})
@@ -1255,4 +1273,129 @@ func (s *TokenStore) RemoveAllUploadEntries(tokenID string) error {
 		}
 		return root.DeleteBucket([]byte(tokenID))
 	})
+}
+
+// SchedulePurge records a pending media purge for a token after the given delay.
+func (s *TokenStore) SchedulePurge(tokenID, actorID string, delay time.Duration) (PendingPurge, error) {
+	now := time.Now().UTC()
+	p := PendingPurge{
+		TokenID:     tokenID,
+		RequestedAt: now,
+		PurgeAt:     now.Add(delay),
+		ActorID:     actorID,
+	}
+	v, err := json.Marshal(p)
+	if err != nil {
+		return PendingPurge{}, err
+	}
+	err = s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(purgeBucket).Put([]byte(tokenID), v)
+	})
+	if err != nil {
+		return PendingPurge{}, err
+	}
+	return p, nil
+}
+
+// GetPendingPurge returns the pending purge for the given tokenID, if any.
+func (s *TokenStore) GetPendingPurge(tokenID string) (PendingPurge, bool) {
+	var p PendingPurge
+	found := false
+	_ = s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(purgeBucket)
+		if b == nil {
+			return nil
+		}
+		v := b.Get([]byte(tokenID))
+		if v == nil {
+			return nil
+		}
+		if json.Unmarshal(v, &p) == nil {
+			found = true
+		}
+		return nil
+	})
+	return p, found
+}
+
+// CancelPendingPurge removes a pending purge for the given tokenID.
+// Returns true if a pending purge was cancelled, false if none was found.
+func (s *TokenStore) CancelPendingPurge(tokenID string) (bool, error) {
+	var cancelled bool
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(purgeBucket)
+		if b == nil {
+			return nil
+		}
+		if b.Get([]byte(tokenID)) != nil {
+			cancelled = true
+			return b.Delete([]byte(tokenID))
+		}
+		return nil
+	})
+	return cancelled, err
+}
+
+// ListPendingPurges returns all pending purges sorted by PurgeAt.
+func (s *TokenStore) ListPendingPurges() ([]PendingPurge, error) {
+	var list []PendingPurge
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(purgeBucket)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var p PendingPurge
+			if json.Unmarshal(v, &p) == nil {
+				list = append(list, p)
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].PurgeAt.Before(list[j].PurgeAt)
+	})
+	return list, nil
+}
+
+// ProcessDuePurges finds all pending purges whose PurgeAt has passed, invokes executePurge, and removes the pending record.
+func (s *TokenStore) ProcessDuePurges(now time.Time, executePurge func(tokenID string) error) (int, error) {
+	var due []PendingPurge
+	err := s.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(purgeBucket)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var p PendingPurge
+			if json.Unmarshal(v, &p) == nil {
+				if !now.Before(p.PurgeAt) {
+					due = append(due, p)
+				}
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	executed := 0
+	for _, p := range due {
+		if executePurge != nil {
+			_ = executePurge(p.TokenID)
+		}
+		_ = s.db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket(purgeBucket)
+			if b != nil {
+				_ = b.Delete([]byte(p.TokenID))
+			}
+			return nil
+		})
+		executed++
+	}
+	return executed, nil
 }

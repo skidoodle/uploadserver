@@ -21,6 +21,7 @@ type Config struct {
 	NameLength        int           // length of the random part of the filename (hex characters)
 	TrustProxyHeaders bool          // whether forwarded scheme/client headers are trusted
 	RequestTimeout    time.Duration // deadline for non-upload HTTP requests
+	PurgeGracePeriod  time.Duration // delay before scheduled media purges are executed (0 disables grace period)
 }
 
 // LoadConfig resolves the configuration from environment variables.
@@ -57,6 +58,27 @@ func LoadConfig() (Config, error) {
 		return Config{}, fmt.Errorf("invalid REQUEST_TIMEOUT %q", timeoutStr)
 	}
 	cfg.RequestTimeout = requestTimeout
+
+	graceStr := strings.TrimSpace(strings.ToLower(Env("PURGE_GRACE_PERIOD", "24h")))
+	switch graceStr {
+	case "0", "0s", "off", "false", "none", "disable", "disabled":
+		cfg.PurgeGracePeriod = 0
+	default:
+		if before, ok := strings.CutSuffix(graceStr, "d"); ok {
+			daysStr := before
+			if days, err := strconv.Atoi(daysStr); err == nil && days >= 0 {
+				cfg.PurgeGracePeriod = time.Duration(days) * 24 * time.Hour
+			} else {
+				return Config{}, fmt.Errorf("invalid PURGE_GRACE_PERIOD %q", graceStr)
+			}
+		} else {
+			gracePeriod, err := time.ParseDuration(graceStr)
+			if err != nil || gracePeriod < 0 {
+				return Config{}, fmt.Errorf("invalid PURGE_GRACE_PERIOD %q", graceStr)
+			}
+			cfg.PurgeGracePeriod = gracePeriod
+		}
+	}
 
 	return cfg, nil
 }
