@@ -4,6 +4,114 @@
   }
   window._cmdInvoker = getInvoker;
 
+  let savedScrollY = 0;
+  let isScrollLocked = false;
+
+  function onTouchMoveModal(e) {
+    const scrollable = e.target.closest('.text-scroll-area, .font-sample-scroll');
+    if (!scrollable) {
+      if (e.cancelable) e.preventDefault();
+      return;
+    }
+    if (scrollable.scrollHeight <= scrollable.clientHeight && scrollable.scrollWidth <= scrollable.clientWidth) {
+      if (e.cancelable) e.preventDefault();
+    }
+  }
+
+  function updateScrollLock() {
+    const openDialogs = Array.from(document.querySelectorAll('dialog')).filter((d) => d.open);
+    if (openDialogs.length > 0) {
+      if (!isScrollLocked) {
+        savedScrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop || 0;
+        document.body.style.position = 'fixed';
+        document.body.style.top = `-${savedScrollY}px`;
+        document.body.style.left = '0';
+        document.body.style.right = '0';
+        document.body.style.width = '100%';
+        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
+        document.documentElement.classList.add('modal-open');
+        document.body.classList.add('modal-open');
+        document.addEventListener('touchmove', onTouchMoveModal, { passive: false });
+        isScrollLocked = true;
+      }
+    } else {
+      if (isScrollLocked) {
+        const restoreY = savedScrollY;
+        document.body.style.position = '';
+        document.body.style.top = '';
+        document.body.style.left = '';
+        document.body.style.right = '';
+        document.body.style.width = '';
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+        document.documentElement.classList.remove('modal-open');
+        document.body.classList.remove('modal-open');
+        document.removeEventListener('touchmove', onTouchMoveModal, { passive: false });
+        isScrollLocked = false;
+        window.scrollTo(0, restoreY);
+      }
+    }
+  }
+  window._updateScrollLock = updateScrollLock;
+
+  function preventAutofocus(target) {
+    setTimeout(() => {
+      if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        document.activeElement.blur();
+      }
+      if (target && typeof target.focus === 'function') {
+        try { target.focus({ preventScroll: true }); } catch (_) { }
+      }
+    }, 0);
+  }
+
+  try {
+    const dialogObserver = new MutationObserver(() => {
+      updateScrollLock();
+    });
+    dialogObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['open'],
+      subtree: true,
+    });
+  } catch (_) { }
+
+  const origShowModal = HTMLDialogElement.prototype.showModal;
+  HTMLDialogElement.prototype.showModal = function (...args) {
+    origShowModal.apply(this, args);
+    updateScrollLock();
+    preventAutofocus(this);
+  };
+
+  const origClose = HTMLDialogElement.prototype.close;
+  HTMLDialogElement.prototype.close = function (...args) {
+    origClose.apply(this, args);
+    updateScrollLock();
+  };
+
+  document.addEventListener('close', updateScrollLock, true);
+  document.addEventListener('cancel', updateScrollLock, true);
+  document.addEventListener('toggle', updateScrollLock, true);
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[commandfor], button[data-commandfor], [command]');
+    if (btn) {
+      setTimeout(updateScrollLock, 0);
+      setTimeout(updateScrollLock, 50);
+    }
+  }, true);
+
+  document.addEventListener('command', (e) => {
+    if (e.command === 'show-modal') {
+      const target = e.target;
+      updateScrollLock();
+      preventAutofocus(target);
+    } else if (e.command === 'close') {
+      setTimeout(updateScrollLock, 0);
+    }
+  });
+
   if (!('CommandEvent' in window)) {
     document.addEventListener('click', (e) => {
       const button = e.target.closest('button[commandfor], button[data-commandfor]');

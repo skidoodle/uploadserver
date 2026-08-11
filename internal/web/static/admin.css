@@ -62,10 +62,9 @@
     }
 }
 
-body:has(dialog.lightbox-dialog[open]) {
-    overflow: hidden;
+html {
     overscroll-behavior: none;
-    touch-action: none;
+    overscroll-behavior-y: none;
 }
 
 body {
@@ -76,6 +75,8 @@ body {
     line-height: 1.5;
     background: var(--bg);
     color: var(--fg);
+    overscroll-behavior: none;
+    overscroll-behavior-y: none;
 }
 
 a {
@@ -409,17 +410,32 @@ a.ctx-item {
     display: contents;
 }
 
+html.modal-open,
+body.modal-open {
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
+    touch-action: none !important;
+}
+
 dialog {
+    box-sizing: border-box;
     border: 1px solid var(--border-color);
     border-radius: 10px;
     background: var(--bg);
     color: var(--fg);
     padding: 1.1rem 1.2rem;
-    max-width: 26rem;
+    width: min(92vw, 26rem);
+    max-width: calc(100vw - 1.5rem);
     box-shadow: var(--shadow-modal);
+    overscroll-behavior: contain;
+    outline: none;
+    overflow: hidden;
+    margin: auto;
 
     &::backdrop {
         background: var(--backdrop-bg);
+        overscroll-behavior: contain;
+        touch-action: none;
     }
 
     p {
@@ -427,18 +443,15 @@ dialog {
     }
 }
 
-#renamedlg {
-    width: 24rem;
-    max-width: calc(100vw - 2rem);
-
-    .dlg-label {
-        margin-bottom: 0.4rem;
-    }
+#renamedlg,
+#giveawaydlg {
+    box-sizing: border-box;
+    width: min(92vw, 24rem);
+    max-width: calc(100vw - 1.5rem);
 }
 
-#giveawaydlg {
-    width: 24rem;
-    max-width: calc(100vw - 2rem);
+#renamedlg .dlg-label {
+    margin-bottom: 0.4rem;
 }
 
 .dlg-title {
@@ -467,8 +480,15 @@ dialog {
 }
 
 #limdlg {
-    max-width: 34rem;
-    padding: 1.2rem 1.4rem;
+    box-sizing: border-box;
+    width: min(94vw, 32rem);
+    max-width: calc(100vw - 1.5rem);
+    padding: 1rem 1.2rem;
+    overflow: hidden;
+
+    p {
+        margin: 0 0 0.6rem;
+    }
 }
 
 .label-err,
@@ -497,21 +517,23 @@ dialog {
 .lim-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.6rem 0.8rem;
-    margin: 0 0 0.6rem;
+    gap: 0.45rem 0.65rem;
+    margin: 0 0 0.5rem;
 
     label,
     .policy-field {
         display: flex;
         flex-direction: column;
-        gap: 0.25rem;
-        font-size: 0.82rem;
+        gap: 0.2rem;
+        font-size: 0.8rem;
         color: var(--fg-muted);
     }
 
     input {
         width: 100%;
         box-sizing: border-box;
+        padding: 0.35rem 0.5rem;
+        font-size: 0.85rem;
     }
 }
 
@@ -558,8 +580,9 @@ select {
 }
 
 .lim-hint {
-    font-size: 0.8rem;
-    margin: 0 0 1rem;
+    font-size: 0.78rem;
+    line-height: 1.25;
+    margin: 0 0 0.5rem;
 }
 
 .bar .lim-hint {
@@ -570,8 +593,8 @@ select {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    font-size: 0.85rem;
-    margin: 0 0 0.6rem;
+    font-size: 0.82rem;
+    margin: 0 0 0.35rem;
 
     input {
         width: auto;

@@ -186,7 +186,7 @@
 			<div class="empty-state">No users found.</div>
 		{{ end }}
 
-		<dialog id="dlg">
+		<dialog id="dlg" tabindex="-1" autofocus>
 			<form method="POST" id="dlgForm" action="">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p id="dlgmsg"></p>
@@ -197,7 +197,7 @@
 			</form>
 		</dialog>
 
-		<dialog id="roledlg">
+		<dialog id="roledlg" tabindex="-1" autofocus>
 			<form method="POST" id="roleForm" action="">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<input type="hidden" name="role" id="roleTargetInput" value="">
@@ -209,7 +209,7 @@
 			</form>
 		</dialog>
 
-		<dialog id="limdlg">
+		<dialog id="limdlg" tabindex="-1" autofocus>
 			<form method="POST" id="limForm" action="">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p>Quotas & Invites for <code id="limTarget"></code></p>
@@ -238,7 +238,7 @@
 			</form>
 		</dialog>
 
-		<dialog id="renamedlg">
+		<dialog id="renamedlg" tabindex="-1" autofocus>
 			<form method="POST" id="renameForm" action="">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p class="dlg-title">Rename token <code id="renameTarget"></code></p>
@@ -255,7 +255,7 @@
 			</form>
 		</dialog>
 
-		<dialog id="giveawaydlg">
+		<dialog id="giveawaydlg" tabindex="-1" autofocus>
 			<form method="POST" action="/_/tokens/giveaway">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p class="dlg-title">Giveaway Invites</p>

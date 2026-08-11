@@ -133,7 +133,7 @@
 				{{ end }}
 			</div>
 		{{ end }}
-		<dialog id="imgModal" class="lightbox-dialog">
+		<dialog id="imgModal" class="lightbox-dialog" tabindex="-1" autofocus>
 			<button type="button" id="modalPrev" commandfor="imgModal" command="--prev" class="lightbox-nav-btn nav-prev" aria-label="Previous file">
 				<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
 			</button>
@@ -311,7 +311,7 @@
 				</div>
 			</dialog>
 
-			<dialog id="filedel-dlg">
+			<dialog id="filedel-dlg" tabindex="-1" autofocus>
 				<form method="POST" action="/_/files/delete" id="filedel-form">
 					<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 					<input type="hidden" name="filename" id="filedel-input" value="">
@@ -323,7 +323,7 @@
 				</form>
 			</dialog>
 
-			<dialog id="purgedlg">
+			<dialog id="purgedlg" tabindex="-1" autofocus>
 				<form method="POST" id="purgeForm" action="">
 					<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 					<p id="purgedlgmsg"></p>

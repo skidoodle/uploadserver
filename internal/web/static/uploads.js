@@ -470,11 +470,38 @@
     discEl: audioDisc,
   });
 
+  function updateScrollLock() {
+    if (typeof window._updateScrollLock === 'function') {
+      window._updateScrollLock();
+      return;
+    }
+    const openDialogs = document.querySelectorAll('dialog[open]').length > 0;
+    if (openDialogs) {
+      document.documentElement.classList.add('modal-open');
+      document.body.classList.add('modal-open');
+    } else {
+      document.documentElement.classList.remove('modal-open');
+      document.body.classList.remove('modal-open');
+    }
+  }
+
+  function preventAutofocus(target) {
+    setTimeout(() => {
+      if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+        document.activeElement.blur();
+      }
+      if (target && typeof target.focus === 'function') {
+        try { target.focus({ preventScroll: true }); } catch (_) { }
+      }
+    }, 0);
+  }
+
   function prepareModal(index) {
     if (index < 0 || index >= mediaItems.length) return;
     currentIndex = index;
     updateModalContent();
-    document.body.style.overflow = 'hidden';
+    updateScrollLock();
+    preventAutofocus(modal);
     maybePrefetch();
   }
 
@@ -485,6 +512,8 @@
         modal.showModal();
       } catch (_) { }
     }
+    updateScrollLock();
+    preventAutofocus(modal);
   }
 
   function stopPlayback() {
@@ -520,9 +549,9 @@
   }
 
   function closeModal() {
-    document.body.style.overflow = '';
     stopPlayback();
     if (modal && modal.open) modal.close();
+    updateScrollLock();
   }
 
   function updateModalContent() {
@@ -799,8 +828,8 @@
       closeModal();
     });
     modal.addEventListener('close', () => {
-      document.body.style.overflow = '';
       stopPlayback();
+      updateScrollLock();
     });
   }
 
