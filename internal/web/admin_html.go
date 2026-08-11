@@ -146,19 +146,24 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 	"fileIcon": func(name string) string {
 		ext := strings.ToLower(filepath.Ext(name))
 		switch ext {
-		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic", ".svg":
+		case ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp", ".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic", ".svg":
 			return "\U0001F5BC" // framed picture
-		case ".mp4", ".webm", ".mov":
+		case ".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv", ".avi":
 			return "\U0001F3AC" // clapper board
-		case ".mp3", ".flac":
+		case ".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac":
 			return "\U0001F3B5" // musical note
-		case ".zip", ".rar", ".7z", ".gz":
+		case ".zip", ".rar", ".7z", ".gz", ".tar":
 			return "\U0001F4E6" // package
 		case ".pdf":
 			return "\U0001F4D1" // bookmark tabs
-		case ".exe", ".jar", ".so":
+		case ".ttf", ".woff", ".woff2", ".otf", ".eot":
+			return "\U0001F524" // font / latin letters
+		case ".exe", ".jar", ".so", ".pdn":
 			return "\u2699" // gear
-		case ".txt", ".html", ".mhtml", ".css", ".json", ".yaml", ".yml", ".csv", ".conf", ".sh":
+		case ".txt", ".html", ".htm", ".xhtml", ".mhtml", ".css", ".json", ".yaml", ".yml", ".csv", ".conf", ".sh",
+			".bash", ".zsh", ".xml", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".md", ".markdown", ".log",
+			".ini", ".env", ".toml", ".sql", ".py", ".go", ".rs", ".c", ".cpp", ".h", ".hpp", ".java",
+			".diff", ".patch":
 			return "\U0001F4C4" // page facing up
 		default:
 			return "\U0001F4CE" // paperclip
@@ -191,7 +196,7 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 	},
 	"isImage": func(name string) bool {
 		switch strings.ToLower(filepath.Ext(name)) {
-		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".svg":
+		case ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp", ".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic", ".svg":
 			return true
 		}
 		return false
@@ -203,26 +208,88 @@ var uploadsTmpl = template.Must(template.New("uploads").Funcs(template.FuncMap{
 		}
 		return false
 	},
-	"isMedia": func(name string) bool {
+	"isAudio": func(name string) bool {
 		switch strings.ToLower(filepath.Ext(name)) {
-		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".svg",
-			".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv":
+		case ".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac":
+			return true
+		}
+		return false
+	},
+	"isPDF": func(name string) bool {
+		return strings.ToLower(filepath.Ext(name)) == ".pdf"
+	},
+	"isFont": func(name string) bool {
+		switch strings.ToLower(filepath.Ext(name)) {
+		case ".ttf", ".woff", ".woff2", ".otf", ".eot":
+			return true
+		}
+		return false
+	},
+	"isText": func(name string) bool {
+		switch strings.ToLower(filepath.Ext(name)) {
+		case ".txt", ".html", ".htm", ".xhtml", ".mhtml", ".css", ".json", ".yaml", ".yml", ".csv", ".conf", ".sh",
+			".bash", ".zsh", ".xml", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".md", ".markdown", ".log",
+			".ini", ".env", ".toml", ".sql", ".py", ".go", ".rs", ".c", ".cpp", ".h", ".hpp", ".java",
+			".diff", ".patch":
+			return true
+		}
+		return false
+	},
+	"mediaType": func(name string) string {
+		ext := strings.ToLower(filepath.Ext(name))
+		switch ext {
+		case ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp", ".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic", ".svg":
+			return "image"
+		case ".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv":
+			return "video"
+		case ".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac":
+			return "audio"
+		case ".pdf":
+			return "pdf"
+		case ".ttf", ".woff", ".woff2", ".otf", ".eot":
+			return "font"
+		case ".txt", ".html", ".htm", ".xhtml", ".mhtml", ".css", ".json", ".yaml", ".yml", ".csv", ".conf", ".sh",
+			".bash", ".zsh", ".xml", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".md", ".markdown", ".log",
+			".ini", ".env", ".toml", ".sql", ".py", ".go", ".rs", ".c", ".cpp", ".h", ".hpp", ".java",
+			".diff", ".patch":
+			return "text"
+		default:
+			return "other"
+		}
+	},
+	"isMedia": func(name string) bool {
+		ext := strings.ToLower(filepath.Ext(name))
+		switch ext {
+		case ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp", ".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic", ".svg",
+			".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv",
+			".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac",
+			".pdf",
+			".ttf", ".woff", ".woff2", ".otf", ".eot",
+			".txt", ".html", ".htm", ".xhtml", ".mhtml", ".css", ".json", ".yaml", ".yml", ".csv", ".conf", ".sh",
+			".bash", ".zsh", ".xml", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".md", ".markdown", ".log",
+			".ini", ".env", ".toml", ".sql", ".py", ".go", ".rs", ".c", ".cpp", ".h", ".hpp", ".java",
+			".diff", ".patch":
 			return true
 		}
 		return false
 	},
 	"extClass": func(name string) string {
 		switch strings.ToLower(filepath.Ext(name)) {
-		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".svg":
+		case ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic", ".svg":
 			return "ext-img"
-		case ".mp4", ".webm", ".mov", ".avi", ".mkv":
+		case ".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v", ".ogv":
 			return "ext-vid"
-		case ".mp3", ".flac", ".wav", ".ogg", ".m4a":
+		case ".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac":
 			return "ext-aud"
 		case ".zip", ".rar", ".7z", ".gz", ".tar":
 			return "ext-arc"
-		case ".pdf", ".doc", ".docx", ".txt", ".md", ".json":
+		case ".pdf", ".doc", ".docx", ".txt", ".md", ".json", ".yaml", ".yml", ".csv", ".conf", ".sh",
+			".html", ".css", ".xml", ".js", ".ts", ".log", ".ini", ".env", ".toml":
 			return "ext-doc"
+		case ".ttf", ".woff", ".woff2", ".otf", ".eot":
+			return "ext-font"
+		case ".exe", ".jar", ".so", ".pdn":
+			return "ext-bin"
 		default:
 			return ""
 		}

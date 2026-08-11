@@ -70,11 +70,9 @@
 
 				{{ range .Uploads }}
 					<div class="file-row">
-						<button type="button" class="file-preview" {{ if isMedia .Name }}commandfor="imgModal" command="show-modal"{{ end }} data-preview-url="{{ fileURL $.BaseURL .Name $.StripExtension }}" data-file-name="{{ stripExt .Name }}" data-raw-name="{{ .Name }}" data-is-media="{{ if isMedia .Name }}true{{ else }}false{{ end }}" data-media-type="{{ if isVideo .Name }}video{{ else if isImage .Name }}image{{ else }}other{{ end }}">
+						<button type="button" class="file-preview" {{ if isMedia .Name }}commandfor="imgModal" command="show-modal"{{ end }} data-preview-url="{{ fileURL $.BaseURL .Name $.StripExtension }}" data-file-name="{{ stripExt .Name }}" data-raw-name="{{ .Name }}" data-is-media="{{ if isMedia .Name }}true{{ else }}false{{ end }}" data-media-type="{{ mediaType .Name }}">
 							{{ if isImage .Name }}
 								<img src="{{ fileURL $.BaseURL .Name $.StripExtension }}" loading="lazy" alt="{{ stripExt .Name }}">
-							{{ else if isVideo .Name }}
-								<span class="file-icon-fallback">🎥</span>
 							{{ else }}
 								<span class="file-icon-fallback">{{ fileIcon .Name }}</span>
 							{{ end }}
@@ -136,63 +134,119 @@
 			</div>
 		{{ end }}
 		<dialog id="imgModal" class="lightbox-dialog">
-			<button type="button" id="modalPrev" commandfor="imgModal" command="--prev" class="lightbox-nav-btn nav-prev" aria-label="Previous image">
+			<button type="button" id="modalPrev" commandfor="imgModal" command="--prev" class="lightbox-nav-btn nav-prev" aria-label="Previous file">
 				<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
 			</button>
-			<button type="button" id="modalNext" commandfor="imgModal" command="--next" class="lightbox-nav-btn nav-next" aria-label="Next image">
+			<button type="button" id="modalNext" commandfor="imgModal" command="--next" class="lightbox-nav-btn nav-next" aria-label="Next file">
 				<svg viewBox="0 0 24 24" width="22" height="22" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
 			</button>
 			<div class="lightbox-content">
 				<div class="lightbox-stage">
-					<img id="modalImg" class="lightbox-img" src="" alt="Preview">
+					<img id="modalImg" class="lightbox-img hidden" src="" alt="Preview">
 					<video id="modalVideo" class="lightbox-video hidden" controls playsinline></video>
-				</div>
-				<div class="lightbox-footer">
-					<div class="lightbox-info">
-						<span id="modalTitle" class="mono"></span>
+					<div id="modalAudioBox" class="lightbox-audio-box hidden">
+						<div class="audio-visual">
+							<div class="audio-disc">
+								<svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+									<circle cx="12" cy="12" r="10"></circle>
+									<circle cx="12" cy="12" r="3"></circle>
+									<path d="M12 2a10 10 0 0 1 10 10"></path>
+								</svg>
+							</div>
+							<div id="modalAudioName" class="audio-filename"></div>
+						</div>
+						<audio id="modalAudio" class="lightbox-audio" controls></audio>
 					</div>
-					<div class="lightbox-actions">
-						<a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
-						{{ if or $.IsAdmin $.IsSelf }}
-							<input type="hidden" id="modalDeleteFilename" value="">
-							<button type="button" id="modalDeleteBtn" commandfor="filedel-dlg" command="show-modal" class="act-btn danger">Delete File</button>
-						{{ end }}
-						<button type="button" id="modalClose" commandfor="imgModal" command="close" class="act-btn">Close</button>
+					<div id="modalTextBox" class="lightbox-text-box hidden">
+						<div class="text-preview-header">
+							<div class="text-preview-meta">
+								<span id="textTypeBadge" class="text-type-badge">TXT</span>
+								<span id="textStats" class="text-stats"></span>
+							</div>
+							<div class="text-preview-actions">
+								<button type="button" id="textWrapBtn" class="text-act-btn" title="Toggle word wrap">Wrap: Off</button>
+								<button type="button" id="textCopyBtn" class="text-act-btn" title="Copy text content">Copy</button>
+							</div>
+						</div>
+						<div id="textLoading" class="text-state-box text-loading hidden">
+							<div class="spinner"></div>
+							<span>Loading text preview…</span>
+						</div>
+						<div id="textError" class="text-state-box text-error hidden">
+							<span id="textErrorMsg">Unable to display preview.</span>
+						</div>
+						<div id="textScrollArea" class="text-scroll-area hidden">
+							<div id="textLineNumbers" class="text-line-numbers" aria-hidden="true"></div>
+							<pre id="modalTextPre" class="text-pre"><code id="modalTextCode" class="text-code"></code></pre>
+						</div>
+					</div>
+					<iframe id="modalPdf" class="lightbox-pdf hidden" src="about:blank" title="PDF Preview"></iframe>
+					<div id="modalFontBox" class="lightbox-font-box hidden">
+						<div class="font-preview-header">
+							<span id="fontFamilyName" class="font-family-name"></span>
+							<span id="fontFormatBadge" class="font-format-badge">TTF</span>
+						</div>
+						<div class="font-sample-scroll">
+							<div class="font-sample-alphabet">
+								ABCDEFGHIJKLMNOPQRSTUVWXYZ<br>
+								abcdefghijklmnopqrstuvwxyz<br>
+								0123456789 (!@#$%^&amp;*()_+-=[]{}|;:,.<>?)
+								</div>
+								<div class="font-sample-headline">
+									The quick brown fox jumps over the lazy dog
+								</div>
+								<div class="font-sample-paragraph">
+									Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow. Two driven jocks help fax my big quiz.
+								</div>
+							</div>
+						</div>
+					</div>
+					<div class="lightbox-footer">
+						<div class="lightbox-info">
+							<span id="modalTitle" class="mono"></span>
+						</div>
+						<div class="lightbox-actions">
+							<a id="modalDownload" href="" target="_blank" rel="noopener" class="act-btn">Open Original</a>
+							{{ if or $.IsAdmin $.IsSelf }}
+								<input type="hidden" id="modalDeleteFilename" value="">
+								<button type="button" id="modalDeleteBtn" commandfor="filedel-dlg" command="show-modal" class="act-btn danger">Delete File</button>
+							{{ end }}
+							<button type="button" id="modalClose" commandfor="imgModal" command="close" class="act-btn">Close</button>
+						</div>
 					</div>
 				</div>
-			</div>
-		</dialog>
+			</dialog>
 
-		<dialog id="filedel-dlg">
-			<form method="POST" action="/_/files/delete" id="filedel-form">
-				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
-				<input type="hidden" name="filename" id="filedel-input" value="">
-				<p id="filedel-msg">Delete file permanently?</p>
-				<div class="bar bar-end">
-					<button type="button" commandfor="filedel-dlg" command="close">Cancel</button>
-					<button type="submit" class="danger">Delete File</button>
-				</div>
-			</form>
-		</dialog>
+			<dialog id="filedel-dlg">
+				<form method="POST" action="/_/files/delete" id="filedel-form">
+					<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+					<input type="hidden" name="filename" id="filedel-input" value="">
+					<p id="filedel-msg">Delete file permanently?</p>
+					<div class="bar bar-end">
+						<button type="button" commandfor="filedel-dlg" command="close">Cancel</button>
+						<button type="submit" class="danger">Delete File</button>
+					</div>
+				</form>
+			</dialog>
 
-		<dialog id="purgedlg">
-			<form method="POST" id="purgeForm" action="">
-				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
-				<p id="purgedlgmsg"></p>
-				<label class="dlg-label">Type <code id="purgeTargetPhrase"></code> to confirm
-					<input type="text" name="confirm_phrase" id="purgeConfirmInput"
-						autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-						onpaste="return false;" ondrop="return false;" required>
-				</label>
-				<div id="purgePasteWarning" class="label-err" hidden>pasting is disabled</div>
-				<div class="bar bar-end">
-					<button type="button" commandfor="purgedlg" command="close">Cancel</button>
-					<button type="button" class="danger" id="purgeSubmitBtn" commandfor="purgedlg" command="--submit-purge" disabled>Purge</button>
-				</div>
-			</form>
-		</dialog>
+			<dialog id="purgedlg">
+				<form method="POST" id="purgeForm" action="">
+					<input type="hidden" name="_csrf" value="{{ .CSRF }}">
+					<p id="purgedlgmsg"></p>
+					<label class="dlg-label">Type <code id="purgeTargetPhrase"></code> to confirm
+						<input type="text" name="confirm_phrase" id="purgeConfirmInput"
+							autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+							onpaste="return false;" ondrop="return false;" required>
+					</label>
+					<div id="purgePasteWarning" class="label-err" hidden>pasting is disabled</div>
+					<div class="bar bar-end">
+						<button type="button" commandfor="purgedlg" command="close">Cancel</button>
+						<button type="button" class="danger" id="purgeSubmitBtn" commandfor="purgedlg" command="--submit-purge" disabled>Purge</button>
+					</div>
+				</form>
+			</dialog>
 
 		<script src="/_/admin.js"></script>
 		<script src="/_/uploads.js"></script>
-	</body>
-</html>
+		</body>
+	</html>

@@ -80,7 +80,8 @@ func isSafeInlineMedia(ext string) bool {
 	case ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp",
 		".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic",
 		".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv",
-		".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac":
+		".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac",
+		".pdf":
 		return true
 	}
 	return false
@@ -119,9 +120,10 @@ func (s *server) handleFileServer(w http.ResponseWriter, r *http.Request) {
 
 	// Uploads are untrusted, potentially active content. Sandbox dangerous
 	// formats to prevent script execution, but allow standard media files
-	// (images/video/audio) to render properly in browser native viewers.
+	// (images/video/audio/pdf) to render properly in browser native viewers.
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 	if isSafeInlineMedia(ext) {
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; img-src 'self' data: blob:; media-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-src 'self' blob:; object-src 'self' blob:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'")
 	} else {
 		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'")
 	}

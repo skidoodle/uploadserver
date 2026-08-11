@@ -4,7 +4,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+
+	"uploadserver/internal"
 )
 
 func TestParseCount(t *testing.T) {
@@ -107,5 +110,101 @@ func TestCSRFGenerationAndValidation(t *testing.T) {
 	boundReq.Form = url.Values{"_csrf": []string{bound}}
 	if validateCSRF(boundReq) {
 		t.Error("validateCSRF accepted a token bound to another session")
+	}
+}
+
+func TestUploadsTemplateMediaTypes(t *testing.T) {
+	testFiles := []struct {
+		filename  string
+		isMedia   bool
+		mediaType string
+	}{
+		// Archives & Binaries (not previewable)
+		{"archive.7z", false, "other"},
+		{"archive.gz", false, "other"},
+		{"archive.rar", false, "other"},
+		{"archive.zip", false, "other"},
+		{"program.exe", false, "other"},
+		{"library.jar", false, "other"},
+		{"binary.so", false, "other"},
+		{"image.pdn", false, "other"},
+
+		// Images
+		{"picture.avif", true, "image"},
+		{"favicon.ico", true, "image"},
+		{"graphic.png", true, "image"},
+		{"vector.svg", true, "image"},
+
+		// Videos
+		{"clip.mov", true, "video"},
+		{"movie.mp4", true, "video"},
+		{"video.webm", true, "video"},
+
+		// Audio
+		{"song.flac", true, "audio"},
+		{"music.mp3", true, "audio"},
+
+		// PDF
+		{"document.pdf", true, "pdf"},
+
+		// Fonts
+		{"font.ttf", true, "font"},
+		{"webfont.woff", true, "font"},
+
+		// Text & Code
+		{"settings.conf", true, "text"},
+		{"style.css", true, "text"},
+		{"data.csv", true, "text"},
+		{"page.html", true, "text"},
+		{"payload.json", true, "text"},
+		{"webpage.mhtml", true, "text"},
+		{"script.sh", true, "text"},
+		{"readme.txt", true, "text"},
+		{"config.yaml", true, "text"},
+		{"config.yml", true, "text"},
+	}
+
+	var entries []internal.UploadEntry
+	for _, tf := range testFiles {
+		entries = append(entries, internal.UploadEntry{
+			Name: tf.filename,
+			Size: 1024,
+		})
+	}
+
+	data := uploadsPageData{
+		Token: internal.TokenRecord{
+			ID:    "testtoken",
+			Label: "Test Token",
+			Role:  "admin",
+		},
+		Uploads:         entries,
+		BaseURL:         "https://example.com",
+		Page:            1,
+		TotalPages:      1,
+		TotalFiles:      len(entries),
+		TotalUnfiltered: len(entries),
+		PerPage:         len(entries),
+		PageStart:       1,
+		PageEnd:         len(entries),
+		IsAdmin:         true,
+	}
+
+	rec := httptest.NewRecorder()
+	renderTemplate(rec, uploadsTmpl, data)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("renderTemplate returned status %d; body=%s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+
+	for _, tf := range testFiles {
+		expectedIsMedia := "false"
+		if tf.isMedia {
+			expectedIsMedia = "true"
+		}
+		expectedSnippet := "data-raw-name=\"" + tf.filename + "\" data-is-media=\"" + expectedIsMedia + "\" data-media-type=\"" + tf.mediaType + "\""
+		if !strings.Contains(body, expectedSnippet) {
+			t.Errorf("rendered template missing expected snippet %q for file %s", expectedSnippet, tf.filename)
+		}
 	}
 }
