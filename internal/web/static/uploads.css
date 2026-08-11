@@ -516,17 +516,247 @@ span.pager-btn[disabled] {
     user-select: none;
 }
 
+.lightbox-video-box {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: #000;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
 .lightbox-video {
     max-width: 100%;
     max-height: 100%;
     width: auto;
     height: auto;
     object-fit: contain;
-    border-radius: 4px;
-    border: 1px solid var(--border-color-opts);
     background: #000;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
     outline: none;
+    cursor: pointer;
+}
+
+.video-center-flash {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    width: 4.5rem;
+    height: 4.5rem;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 5;
+}
+
+.video-center-flash .flash-play {
+    transform: translateX(3px);
+}
+
+.video-center-flash.flash {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.1);
+}
+
+.player-btn .play-icon {
+    transform: translateX(1px);
+}
+
+.custom-player-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.video-controls {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 1.5rem 1rem 0.65rem 1rem;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.45) 60%, transparent 100%);
+    z-index: 10;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.video-controls.idle-hidden {
+    opacity: 0;
+    transform: translateY(6px);
+    pointer-events: none;
+}
+
+.lightbox-video-box:hover .video-controls {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.player-timeline-box {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.player-timeline {
+    flex: 1 1 0%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    position: relative;
+    cursor: pointer;
+    transition: height 0.15s ease;
+}
+
+.player-timeline:hover,
+.player-timeline.scrubbing {
+    height: 8px;
+}
+
+.player-buffered {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.32);
+    border-radius: 3px;
+    width: 0%;
+    pointer-events: none;
+}
+
+.player-progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: #3b82f6;
+    border-radius: 3px;
+    width: 0%;
+    pointer-events: none;
+}
+
+.player-thumb {
+    position: absolute;
+    top: 50%;
+    left: 0%;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: #fff;
+    transform: translate(-50%, -50%) scale(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    transition: transform 0.15s ease;
+}
+
+.player-timeline:hover .player-thumb,
+.player-timeline.scrubbing .player-thumb {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.player-button-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    color: #fff;
+}
+
+.player-btns-left,
+.player-btns-right {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.player-btn {
+    background: transparent;
+    border: none;
+    color: var(--fg, #e0e0e0);
+    padding: 0.35rem;
+    border-radius: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.player-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    color: #fff;
+}
+
+.player-btn:active {
+    transform: scale(0.92);
+}
+
+.player-btn.active {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.18);
+}
+
+.player-btn-main {
+    width: 2.3rem;
+    height: 2.3rem;
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.12));
+    border-radius: 50%;
+}
+
+.player-btn-main:hover {
+    background: #3b82f6;
+    color: #fff;
+}
+
+.player-time {
+    font-size: 0.78rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: rgba(255, 255, 255, 0.85);
+    white-space: nowrap;
+    margin-left: 0.2rem;
+}
+
+.player-rate-btn {
+    font-size: 0.75rem;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding: 0.2rem 0.45rem;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.player-vol-container {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.player-vol-slider {
+    width: 4rem;
+    height: 4px;
+    accent-color: #3b82f6;
+    cursor: pointer;
+    outline: none;
+    opacity: 0.85;
+    transition: opacity 0.15s ease;
+}
+
+.player-vol-slider:hover {
+    opacity: 1;
 }
 
 .lightbox-audio-box {
@@ -535,8 +765,8 @@ span.pager-btn[disabled] {
     align-items: center;
     justify-content: center;
     gap: 1.5rem;
-    width: min(90%, 460px);
-    padding: 2.25rem 2rem;
+    width: min(92%, 480px);
+    padding: 2.25rem 2rem 1.75rem 2rem;
     border-radius: 12px;
     background: var(--bg-surface);
     border: 1px solid var(--border-color-table);
@@ -548,7 +778,7 @@ span.pager-btn[disabled] {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 1rem;
+    gap: 1.15rem;
     text-align: center;
     width: 100%;
 }
@@ -564,17 +794,29 @@ span.pager-btn[disabled] {
     justify-content: center;
     color: var(--fg);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-    animation: disc-pulse 3s ease-in-out infinite alternate;
+    transition: transform 0.3s ease;
 }
 
-@keyframes disc-pulse {
-    0% {
-        transform: scale(1);
+.audio-disc.playing {
+    animation: disc-spin 8s linear infinite;
+}
+
+@keyframes disc-spin {
+    from {
+        transform: rotate(0deg);
     }
 
-    100% {
-        transform: scale(1.05);
+    to {
+        transform: rotate(360deg);
     }
+}
+
+.audio-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
 }
 
 .audio-filename {
@@ -588,10 +830,47 @@ span.pager-btn[disabled] {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.lightbox-audio {
+.audio-format-badge {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--code-bg);
+    color: var(--fg-muted);
+    border: 1px solid var(--border-color-opts);
+    letter-spacing: 0.05em;
+}
+
+.audio-controls {
     width: 100%;
-    outline: none;
-    border-radius: 30px;
+    background: var(--bg-elevated);
+    padding: 0.85rem 1rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color-opts);
+}
+
+.audio-controls .player-timeline {
+    background: var(--border-color);
+}
+
+.audio-controls .player-buffered {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.audio-controls .player-time {
+    color: var(--fg-muted);
+}
+
+@media (prefers-color-scheme: light) {
+    .audio-controls .player-buffered {
+        background: rgba(0, 0, 0, 0.12);
+    }
+
+    .audio-controls .player-timeline {
+        background: rgba(0, 0, 0, 0.12);
+    }
 }
 
 .lightbox-text-box {
@@ -940,6 +1219,7 @@ span.pager-btn[disabled] {
     color: var(--fg);
 }
 
+.lightbox-video-box.hidden,
 .lightbox-video.hidden,
 .lightbox-img.hidden,
 .lightbox-audio-box.hidden,
@@ -1135,6 +1415,48 @@ span.pager-btn[disabled] {
     .lightbox-video {
         max-height: 100%;
         max-width: 100%;
+    }
+
+    .video-controls {
+        padding: 1.25rem 0.5rem 0.45rem 0.5rem;
+    }
+
+    .player-button-row {
+        gap: 0.15rem;
+    }
+
+    .player-btns-left,
+    .player-btns-right {
+        gap: 0.15rem;
+    }
+
+    .player-btn {
+        padding: 0.35rem 0.25rem;
+    }
+
+    .player-time {
+        font-size: 0.72rem;
+        margin-left: 0.1rem;
+    }
+
+    .player-vol-slider {
+        width: 3.2rem;
+    }
+
+    @media (max-width: 520px) {
+        .player-btn-skip {
+            display: none !important;
+        }
+
+        .player-vol-slider {
+            display: none !important;
+        }
+    }
+
+    @media (max-width: 400px) {
+        .player-btn-aux {
+            display: none !important;
+        }
     }
 
     .lightbox-audio-box {

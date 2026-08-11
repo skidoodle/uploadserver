@@ -283,7 +283,7 @@ func TestIPC_ConcurrentRequests(t *testing.T) {
 	workers := 10
 	errCh := make(chan error, workers*3)
 
-	for i := 0; i < workers; i++ {
+	for i := range workers {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()

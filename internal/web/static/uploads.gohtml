@@ -143,19 +143,113 @@
 			<div class="lightbox-content">
 				<div class="lightbox-stage">
 					<img id="modalImg" class="lightbox-img hidden" src="" alt="Preview">
-					<video id="modalVideo" class="lightbox-video hidden" controls playsinline></video>
+					<div id="modalVideoBox" class="lightbox-video-box hidden">
+						<video id="modalVideo" class="lightbox-video" playsinline preload="metadata"></video>
+						<div class="video-center-flash" id="videoCenterFlash">
+							<svg class="flash-play hidden" viewBox="0 0 24 24" width="48" height="48" fill="currentColor"><polygon points="6 4 19 12 6 20"></polygon></svg>
+							<svg class="flash-pause hidden" viewBox="0 0 24 24" width="48" height="48" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+						</div>
+						<div class="custom-player-controls video-controls" id="videoControls">
+							<div class="player-timeline-box" id="videoTimelineBox">
+								<div class="player-timeline" id="videoTimeline">
+									<div class="player-buffered" id="videoBuffered"></div>
+									<div class="player-progress" id="videoProgress"></div>
+									<div class="player-thumb" id="videoThumb"></div>
+								</div>
+							</div>
+							<div class="player-button-row">
+								<div class="player-btns-left">
+									<button type="button" class="player-btn" id="videoPlayBtn" title="Play / Pause (Space)">
+										<svg class="play-icon" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><polygon points="6 4 19 12 6 20"></polygon></svg>
+										<svg class="pause-icon hidden" viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+									</button>
+									<button type="button" class="player-btn player-btn-skip" id="videoBackBtn" title="Rewind 10s (←)">
+										<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+									</button>
+									<button type="button" class="player-btn player-btn-skip" id="videoFwdBtn" title="Forward 10s (→)">
+										<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+									</button>
+									<div class="player-vol-container">
+										<button type="button" class="player-btn" id="videoMuteBtn" title="Mute (M)">
+											<svg class="vol-high-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+											<svg class="vol-mute-icon hidden" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+										</button>
+										<input type="range" class="player-vol-slider" id="videoVolSlider" min="0" max="1" step="0.05" value="1" title="Volume">
+									</div>
+									<div class="player-time">
+										<span id="videoCurTime">0:00</span> / <span id="videoDurTime">0:00</span>
+									</div>
+								</div>
+								<div class="player-btns-right">
+									<button type="button" class="player-btn player-rate-btn" id="videoRateBtn" title="Playback speed">1x</button>
+									<button type="button" class="player-btn player-btn-aux" id="videoLoopBtn" title="Toggle loop">
+										<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+									</button>
+									<button type="button" class="player-btn player-btn-aux" id="videoPipBtn" title="Picture-in-Picture (P)">
+										<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"></rect><rect x="12" y="9" width="8" height="6" rx="1"></rect></svg>
+									</button>
+									<button type="button" class="player-btn" id="videoFullscreenBtn" title="Fullscreen (F)">
+										<svg class="fs-enter-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+										<svg class="fs-exit-icon hidden" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
+									</button>
+								</div>
+							</div>
+						</div>
+					</div>
 					<div id="modalAudioBox" class="lightbox-audio-box hidden">
 						<div class="audio-visual">
-							<div class="audio-disc">
-								<svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+							<div class="audio-disc" id="audioDisc">
+								<svg viewBox="0 0 24 24" width="60" height="60" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
 									<circle cx="12" cy="12" r="10"></circle>
 									<circle cx="12" cy="12" r="3"></circle>
 									<path d="M12 2a10 10 0 0 1 10 10"></path>
 								</svg>
 							</div>
-							<div id="modalAudioName" class="audio-filename"></div>
+							<div class="audio-meta">
+								<div id="modalAudioName" class="audio-filename"></div>
+								<div class="audio-format-badge" id="modalAudioBadge">AUDIO</div>
+							</div>
 						</div>
-						<audio id="modalAudio" class="lightbox-audio" controls></audio>
+						<audio id="modalAudio" preload="metadata"></audio>
+						<div class="custom-player-controls audio-controls">
+							<div class="player-timeline-box" id="audioTimelineBox">
+								<div class="player-timeline" id="audioTimeline">
+									<div class="player-buffered" id="audioBuffered"></div>
+									<div class="player-progress" id="audioProgress"></div>
+									<div class="player-thumb" id="audioThumb"></div>
+								</div>
+								<div class="player-time">
+									<span id="audioCurTime">0:00</span> / <span id="audioDurTime">0:00</span>
+								</div>
+							</div>
+							<div class="player-button-row">
+								<div class="player-btns-left">
+									<button type="button" class="player-btn player-btn-skip" id="audioBackBtn" title="Rewind 10s">
+										<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+									</button>
+									<button type="button" class="player-btn player-btn-main" id="audioPlayBtn" title="Play / Pause (Space)">
+										<svg class="play-icon" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><polygon points="6 4 19 12 6 20"></polygon></svg>
+										<svg class="pause-icon hidden" viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+									</button>
+									<button type="button" class="player-btn player-btn-skip" id="audioFwdBtn" title="Forward 10s">
+										<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+									</button>
+								</div>
+								<div class="player-btns-right">
+									<button type="button" class="player-btn player-rate-btn" id="audioRateBtn" title="Playback speed">1x</button>
+									<button type="button" class="player-btn" id="audioLoopBtn" title="Toggle loop">
+										<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+									</button>
+									<div class="player-vol-container">
+										<button type="button" class="player-btn" id="audioMuteBtn" title="Mute (M)">
+											<svg class="vol-high-icon" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+											<svg class="vol-mute-icon hidden" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+										</button>
+										<input type="range" class="player-vol-slider" id="audioVolSlider" min="0" max="1" step="0.05" value="1" title="Volume">
+									</div>
+								</div>
+							</div>
+						</div>
 					</div>
 					<div id="modalTextBox" class="lightbox-text-box hidden">
 						<div class="text-preview-header">
