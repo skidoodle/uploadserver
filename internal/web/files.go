@@ -80,8 +80,7 @@ func isSafeInlineMedia(ext string) bool {
 	case ".jpg", ".jpeg", ".jfif", ".pjpeg", ".pjp",
 		".png", ".gif", ".webp", ".avif", ".bmp", ".ico", ".heic",
 		".mp4", ".webm", ".mov", ".m4v", ".ogv", ".mkv",
-		".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac",
-		".pdf":
+		".mp3", ".flac", ".wav", ".ogg", ".m4a", ".opus", ".weba", ".aac":
 		return true
 	}
 	return false

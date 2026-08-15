@@ -626,3 +626,88 @@ func TestPendingPurge(t *testing.T) {
 		t.Fatal("expected pending purge to be removed after execution")
 	}
 }
+
+func TestStore_LastUsedPersistedOnFlush(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "tokens.db")
+	store, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+
+	id, secret, err := store.Add("user1", RoleUpload)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// 1. Authenticate with secret
+	rec, ok := store.Authenticate(secret)
+	if !ok {
+		t.Fatalf("Authenticate failed")
+	}
+	if rec.LastUsed.IsZero() {
+		t.Errorf("expected LastUsed to be non-zero in memory")
+	}
+
+	// 2. Explicitly flush LastUsed
+	if err := store.FlushLastUsed(); err != nil {
+		t.Fatalf("FlushLastUsed failed: %v", err)
+	}
+	_ = store.Close()
+
+	// 3. Re-open store from disk and verify LastUsed was persisted to bbolt
+	store2, err := OpenStore(dbPath)
+	if err != nil {
+		t.Fatalf("OpenStore re-open failed: %v", err)
+	}
+	defer func() { _ = store2.Close() }()
+
+	persisted, found := store2.GetRecord(id)
+	if !found {
+		t.Fatalf("GetRecord failed for %s", id)
+	}
+	if persisted.LastUsed.IsZero() {
+		t.Errorf("expected persisted LastUsed to be non-zero in BoltDB on disk")
+	}
+}
+
+func TestStore_QuotaReclaimedOnDelete(t *testing.T) {
+	store := newMemStore(t)
+	id, _, err := store.Add("qtest", RoleUpload)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	// Set 10 MB total size limit
+	if err := store.SetLimits(id, Limits{MaxBytes: 10 * 1024 * 1024}, false); err != nil {
+		t.Fatalf("SetLimits: %v", err)
+	}
+
+	// 1. Reserve and commit 8 MB upload
+	res, budget, err := store.ReserveUpload(id, 10*1024*1024)
+	if err != nil || budget != 10*1024*1024 {
+		t.Fatalf("ReserveUpload: budget=%d, err=%v", budget, err)
+	}
+	entry := UploadEntry{Name: "large.bin", Size: 8 * 1024 * 1024, UploadedAt: time.Now().UTC()}
+	if err := store.CommitUpload(id, res, entry); err != nil {
+		t.Fatalf("CommitUpload: %v", err)
+	}
+
+	// 2. Next upload should only have 2 MB budget left
+	res2, budget2, err := store.ReserveUpload(id, 10*1024*1024)
+	if err != nil || budget2 != 2*1024*1024 {
+		t.Fatalf("ReserveUpload remaining: budget=%d, err=%v", budget2, err)
+	}
+	_ = store.CancelUpload(id, res2)
+
+	// 3. Delete the file using RemoveUploadEntry
+	if err := store.RemoveUploadEntry(id, "large.bin"); err != nil {
+		t.Fatalf("RemoveUploadEntry: %v", err)
+	}
+
+	// 4. Verify storage quota is reclaimed (10 MB budget available again)
+	_, budget3, err := store.ReserveUpload(id, 10*1024*1024)
+	if err != nil || budget3 != 10*1024*1024 {
+		t.Fatalf("ReserveUpload after deletion: budget=%d, err=%v; want %d", budget3, err, 10*1024*1024)
+	}
+}

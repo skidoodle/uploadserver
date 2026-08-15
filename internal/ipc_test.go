@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestIPC_SocketPath(t *testing.T) {
@@ -63,7 +64,7 @@ func TestIPC_ServerLifecycleAndStaleSocket(t *testing.T) {
 	cfg := Config{Dir: dir, StorePath: storePath}
 
 	// 1. Start Server
-	srv, err := StartIPCServer(storePath, store, cfg)
+	srv, err := StartIPCServer(storePath, store, nil, cfg)
 	if err != nil {
 		t.Fatalf("StartIPCServer error: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestIPC_ServerLifecycleAndStaleSocket(t *testing.T) {
 	}
 
 	// 2. Starting another server on same socket should fail
-	_, err = StartIPCServer(storePath, store, cfg)
+	_, err = StartIPCServer(storePath, store, nil, cfg)
 	if err == nil {
 		t.Fatal("expected error starting second server on same socket, got nil")
 	}
@@ -93,7 +94,7 @@ func TestIPC_ServerLifecycleAndStaleSocket(t *testing.T) {
 	if err := os.WriteFile(sockPath, []byte("stale-socket"), 0o600); err != nil {
 		t.Fatalf("failed to write stale socket file: %v", err)
 	}
-	srv2, err := StartIPCServer(storePath, store, cfg)
+	srv2, err := StartIPCServer(storePath, store, nil, cfg)
 	if err != nil {
 		t.Fatalf("StartIPCServer failed to clean up stale socket: %v", err)
 	}
@@ -120,7 +121,7 @@ func TestIPC_AllSubcommandsOverIPC(t *testing.T) {
 	defer func() { _ = store.Close() }()
 
 	cfg := Config{Dir: uploadDir, StorePath: storePath}
-	srv, err := StartIPCServer(storePath, store, cfg)
+	srv, err := StartIPCServer(storePath, store, nil, cfg)
 	if err != nil {
 		t.Fatalf("StartIPCServer error: %v", err)
 	}
@@ -273,7 +274,7 @@ func TestIPC_ConcurrentRequests(t *testing.T) {
 	}
 	defer func() { _ = store.Close() }()
 
-	srv, err := StartIPCServer(storePath, store, Config{Dir: dir, StorePath: storePath})
+	srv, err := StartIPCServer(storePath, store, nil, Config{Dir: dir, StorePath: storePath})
 	if err != nil {
 		t.Fatalf("StartIPCServer error: %v", err)
 	}
@@ -334,7 +335,7 @@ func TestIPC_MalformedAndShortRequests(t *testing.T) {
 	}
 	defer func() { _ = store.Close() }()
 
-	srv, err := StartIPCServer(storePath, store, Config{Dir: dir, StorePath: storePath})
+	srv, err := StartIPCServer(storePath, store, nil, Config{Dir: dir, StorePath: storePath})
 	if err != nil {
 		t.Fatalf("StartIPCServer error: %v", err)
 	}
@@ -354,5 +355,59 @@ func TestIPC_MalformedAndShortRequests(t *testing.T) {
 	resp := string(buf[:n])
 	if !strings.Contains(resp, `"type":"exit"`) || !strings.Contains(resp, `"code":1`) {
 		t.Errorf("expected exit with error response for malformed request, got: %s", resp)
+	}
+}
+
+func TestIPC_FileIndexSynchronized(t *testing.T) {
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "tokens.db")
+	sockPath := filepath.Join(dir, "control.sock")
+	uploadDir := filepath.Join(dir, "uploads")
+	t.Setenv("CONTROL_SOCKET", sockPath)
+	t.Setenv("TOKEN_STORE", storePath)
+	t.Setenv("UPLOAD_DIR", uploadDir)
+
+	store, err := OpenStore(storePath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	id, _, err := store.Add("tester", RoleUpload)
+	if err != nil {
+		t.Fatalf("store.Add: %v", err)
+	}
+
+	// Create pre-indexed file
+	if err := store.RecordUploadEntry(id, UploadEntry{Name: "pic.png", Size: 100, UploadedAt: time.Now()}); err != nil {
+		t.Fatalf("RecordUploadEntry: %v", err)
+	}
+
+	fileIndex, err := BuildFileIndex(store)
+	if err != nil {
+		t.Fatalf("BuildFileIndex: %v", err)
+	}
+
+	if owner := fileIndex.Owner("pic.png"); owner != id {
+		t.Fatalf("initial index owner = %q; want %q", owner, id)
+	}
+
+	cfg := Config{Dir: uploadDir, StorePath: storePath}
+	srv, err := StartIPCServer(storePath, store, fileIndex, cfg)
+	if err != nil {
+		t.Fatalf("StartIPCServer: %v", err)
+	}
+	defer func() { _ = srv.Close() }()
+
+	// Execute `rm <id>` over IPC
+	var stdout, stderr bytes.Buffer
+	handled, err := SendIPCCommand(sockPath, []string{"rm", id}, &stdout, &stderr)
+	if !handled || err != nil {
+		t.Fatalf("rm command over IPC failed: %v", err)
+	}
+
+	// Verify FileIndex was immediately synchronized and cleared
+	if owner := fileIndex.Owner("pic.png"); owner != "" {
+		t.Errorf("fileIndex.Owner(pic.png) = %q; want empty after IPC token removal", owner)
 	}
 }

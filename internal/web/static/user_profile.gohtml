@@ -119,9 +119,15 @@
 			<form method="POST" id="dlgForm" action="">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p id="dlgmsg"></p>
+				<label class="dlg-label" id="deleteConfirmGroup">Type <code id="deleteTargetPhrase"></code> to confirm
+					<input type="text" name="confirm_phrase" id="deleteConfirmInput"
+						autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+						onpaste="return false;" ondrop="return false;" required>
+				</label>
+				<div id="deletePasteWarning" class="label-err" hidden>pasting is disabled</div>
 				<div class="bar bar-end">
 					<button type="button" commandfor="dlg" command="close">Cancel</button>
-					<button type="submit" class="danger">Delete</button>
+					<button type="button" class="danger" id="deleteSubmitBtn" commandfor="dlg" command="--submit-delete" disabled>Delete</button>
 				</div>
 			</form>
 		</dialog>

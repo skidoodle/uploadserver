@@ -35,9 +35,17 @@ Commands:
   reset                      Delete all tokens and reset store
   version                    Show version and runtime info`
 
+// IndexUpdater allows CLI commands to synchronize live in-memory reverse file indexes.
+type IndexUpdater interface {
+	Add(filename, tokenID string)
+	Remove(filename string)
+	RemoveAll(tokenID string) []string
+}
+
 // ExecutionContext encapsulates the dependencies and streams for running a CLI command.
 type ExecutionContext struct {
 	Store     *TokenStore
+	Index     IndexUpdater
 	UploadDir string
 	Stdout    io.Writer
 	Stderr    io.Writer
@@ -289,7 +297,14 @@ func runRm(ctx ExecutionContext, args []string) error {
 	if ctx.Store == nil {
 		return errors.New("store not available")
 	}
-	return ctx.Store.Remove(args[0])
+	id := args[0]
+	if err := ctx.Store.Remove(id); err != nil {
+		return err
+	}
+	if ctx.Index != nil {
+		ctx.Index.RemoveAll(id)
+	}
+	return nil
 }
 
 func runDisable(ctx ExecutionContext, args []string) error {
@@ -515,7 +530,8 @@ func runScan(ctx ExecutionContext, args []string) error {
 	tracked := make(map[string]bool)
 	for _, entries := range allEntries {
 		for _, e := range entries {
-			tracked[e.Name] = true
+			tracked[filepath.ToSlash(e.Name)] = true
+			tracked[filepath.Base(e.Name)] = true
 		}
 	}
 
@@ -525,9 +541,11 @@ func runScan(ctx ExecutionContext, args []string) error {
 	}
 
 	type untrackedFile struct {
-		name    string
-		size    int64
-		modTime time.Time
+		displayPath string
+		storedName  string
+		sourcePath  string
+		size        int64
+		modTime     time.Time
 	}
 	var untracked []untrackedFile
 
@@ -543,9 +561,11 @@ func runScan(ctx ExecutionContext, args []string) error {
 			continue
 		}
 		untracked = append(untracked, untrackedFile{
-			name:    de.Name(),
-			size:    info.Size(),
-			modTime: info.ModTime().UTC(),
+			displayPath: de.Name(),
+			storedName:  de.Name(),
+			sourcePath:  filepath.Join(uploadDir, de.Name()),
+			size:        info.Size(),
+			modTime:     info.ModTime().UTC(),
 		})
 	}
 
@@ -561,7 +581,8 @@ func runScan(ctx ExecutionContext, args []string) error {
 			if sub.IsDir() || strings.HasPrefix(sub.Name(), ".") {
 				continue
 			}
-			if tracked[sub.Name()] {
+			relPath := filepath.ToSlash(filepath.Join(de.Name(), sub.Name()))
+			if tracked[relPath] || tracked[sub.Name()] {
 				continue
 			}
 			info, err := sub.Info()
@@ -569,9 +590,11 @@ func runScan(ctx ExecutionContext, args []string) error {
 				continue
 			}
 			untracked = append(untracked, untrackedFile{
-				name:    de.Name() + "/" + sub.Name(),
-				size:    info.Size(),
-				modTime: info.ModTime().UTC(),
+				displayPath: relPath,
+				storedName:  sub.Name(),
+				sourcePath:  filepath.Join(uploadDir, de.Name(), sub.Name()),
+				size:        info.Size(),
+				modTime:     info.ModTime().UTC(),
 			})
 		}
 	}
@@ -585,7 +608,7 @@ func runScan(ctx ExecutionContext, args []string) error {
 	tw := tabwriter.NewWriter(ctx.Stdout, 0, 2, 2, ' ', 0)
 	_, _ = fmt.Fprintln(tw, "FILE\tSIZE\tMODIFIED")
 	for _, f := range untracked {
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", f.name, FormatSize(f.size), fmtTime(f.modTime))
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", f.displayPath, FormatSize(f.size), fmtTime(f.modTime))
 	}
 	_ = tw.Flush()
 
@@ -594,10 +617,26 @@ func runScan(ctx ExecutionContext, args []string) error {
 		return nil
 	}
 
+	targetDir := filepath.Join(uploadDir, *tokenID)
+	if err := os.MkdirAll(targetDir, 0o750); err != nil {
+		return fmt.Errorf("create user dir: %w", err)
+	}
+
 	var entries []UploadEntry
 	for _, f := range untracked {
+		targetPath := filepath.Join(targetDir, f.storedName)
+		if f.sourcePath != targetPath {
+			// If file is not already in the target directory, move it in.
+			if _, statErr := os.Stat(targetPath); statErr == nil && f.sourcePath != targetPath {
+				return fmt.Errorf("destination file %s already exists", targetPath)
+			}
+			if err := os.Rename(f.sourcePath, targetPath); err != nil {
+				return fmt.Errorf("move %s to %s: %w", f.sourcePath, targetPath, err)
+			}
+		}
+
 		entries = append(entries, UploadEntry{
-			Name:       f.name,
+			Name:       f.storedName,
 			Size:       f.size,
 			UploadedAt: f.modTime,
 		})
@@ -605,6 +644,11 @@ func runScan(ctx ExecutionContext, args []string) error {
 
 	if err := ctx.Store.ImportUploadEntries(*tokenID, entries); err != nil {
 		return fmt.Errorf("import: %w", err)
+	}
+	if ctx.Index != nil {
+		for _, e := range entries {
+			ctx.Index.Add(e.Name, *tokenID)
+		}
 	}
 	_, _ = fmt.Fprintf(ctx.Stdout, "\nimported %d file(s) into token %s\n", len(entries), *tokenID)
 	return nil
@@ -717,6 +761,11 @@ func runMigrate(ctx ExecutionContext, args []string) error {
 	if len(newEntries) > 0 {
 		if err := ctx.Store.ImportUploadEntries(*tokenID, newEntries); err != nil {
 			return fmt.Errorf("import entries: %w", err)
+		}
+	}
+	if ctx.Index != nil {
+		for _, f := range toMove {
+			ctx.Index.Add(f.name, *tokenID)
 		}
 	}
 

@@ -6,7 +6,6 @@
   const modalAudioBox = document.getElementById('modalAudioBox');
   const modalAudio = document.getElementById('modalAudio');
   const modalAudioName = document.getElementById('modalAudioName');
-  const modalAudioBadge = document.getElementById('modalAudioBadge');
   const audioDisc = document.getElementById('audioDisc');
   const modalTextBox = document.getElementById('modalTextBox');
   const textTypeBadge = document.getElementById('textTypeBadge');
@@ -127,7 +126,11 @@
       const isMuted = mediaEl.muted || mediaEl.volume === 0;
       muteBtn?.querySelector('.vol-high-icon')?.classList.toggle('hidden', isMuted);
       muteBtn?.querySelector('.vol-mute-icon')?.classList.toggle('hidden', !isMuted);
-      if (volSlider) volSlider.value = isMuted ? 0 : mediaEl.volume;
+      if (volSlider) {
+        volSlider.value = isMuted ? 0 : mediaEl.volume;
+        const pct = isMuted ? 0 : Math.round(mediaEl.volume * 100);
+        volSlider.style.setProperty('--vol-percent', `${pct}%`);
+      }
     }
 
     function updatePlayBtn() {
@@ -589,7 +592,6 @@
         if (modalAudioBox && modalAudio) {
           modalAudio.src = item.url;
           if (modalAudioName) modalAudioName.textContent = item.rawName || item.name;
-          if (modalAudioBadge) modalAudioBadge.textContent = (ext || 'AUDIO').toUpperCase();
           modalAudioBox.classList.remove('hidden');
           modalAudio.play().catch(() => { });
         }

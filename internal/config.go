@@ -23,6 +23,7 @@ type Config struct {
 	RequestTimeout    time.Duration // deadline for non-upload HTTP requests
 	PurgeGracePeriod  time.Duration // delay before scheduled media purges are executed (0 disables grace period)
 	ControlSocket     string        // path to control socket IPC (or "off" to disable)
+	AllowedHosts      []string      // allowed host header values for returned URLs
 }
 
 // LoadConfig resolves the configuration from environment variables.
@@ -38,6 +39,14 @@ func LoadConfig() (Config, error) {
 		ServeFiles:        Env("SERVE_FILES", "false") == "true",
 		TrustProxyHeaders: Env("TRUST_PROXY_HEADERS", "false") == "true",
 		ControlSocket:     Env("CONTROL_SOCKET", ""),
+	}
+
+	if allowed := Env("ALLOWED_HOSTS", ""); allowed != "" {
+		for h := range strings.SplitSeq(allowed, ",") {
+			if trimmed := strings.TrimSpace(h); trimmed != "" {
+				cfg.AllowedHosts = append(cfg.AllowedHosts, trimmed)
+			}
+		}
 	}
 
 	lenStr := Env("RANDOM_NAME_LENGTH", "32")

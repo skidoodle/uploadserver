@@ -11,9 +11,11 @@ import (
 
 // server bundles the resolved config with the shared token store.
 type server struct {
-	cfg       internal.Config
-	store     *internal.TokenStore
-	fileIndex *internal.FileIndex
+	cfg          internal.Config
+	store        *internal.TokenStore
+	fileIndex    *internal.FileIndex
+	sessions     *sessionStore
+	loginLimiter *ipRateLimiter
 }
 
 // routes defines the HTTP routes for the server.
@@ -114,6 +116,22 @@ func (s *server) requireRoot(w http.ResponseWriter, r *http.Request) (internal.T
 	return rec, true
 }
 
+// validateSessionCookie resolves an admin/user session cookie to a valid TokenRecord.
+func (s *server) validateSessionCookie(c *http.Cookie) (internal.TokenRecord, bool) {
+	if c == nil || c.Value == "" {
+		return internal.TokenRecord{}, false
+	}
+	if s.sessions != nil {
+		if sess, ok := s.sessions.Get(c.Value); ok {
+			rec, found := s.store.GetRecord(sess.tokenID)
+			if found && !rec.Disabled {
+				return rec, true
+			}
+		}
+	}
+	return s.store.Authenticate(c.Value)
+}
+
 // gateAdminAsset serves a static asset only to a request carrying a valid admin
 // session cookie. Everyone else gets a 404, so the dashboard's CSS and JS aren't
 // discoverable without logging in.
@@ -124,7 +142,7 @@ func (s *server) gateAdminAsset(next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if _, ok := s.store.Authenticate(c.Value); !ok {
+		if _, ok := s.validateSessionCookie(c); !ok {
 			http.NotFound(w, r)
 			return
 		}

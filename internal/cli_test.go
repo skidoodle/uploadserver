@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -141,5 +142,70 @@ func TestCLI_ShortHash(t *testing.T) {
 	h := "abcdef1234567890"
 	if got := shortHash(h); !strings.HasPrefix(got, "abcdef123456") || !strings.HasSuffix(got, "…") {
 		t.Errorf("shortHash(%q) = %q; want truncated hex prefix", h, got)
+	}
+}
+
+func TestCLI_ScanDoesNotDuplicateOrLoop(t *testing.T) {
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "tokens.db")
+	uploadDir := filepath.Join(dir, "uploads")
+	t.Setenv("TOKEN_STORE", storePath)
+	t.Setenv("UPLOAD_DIR", uploadDir)
+
+	store, err := OpenStore(storePath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	id, _, err := store.Add("tester", RoleUpload)
+	if err != nil {
+		t.Fatalf("store.Add: %v", err)
+	}
+	_ = store.Close()
+
+	userDir := filepath.Join(uploadDir, id)
+	if err := os.MkdirAll(userDir, 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	testFile := filepath.Join(userDir, "image.png")
+	if err := os.WriteFile(testFile, []byte("fake image bytes"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	// 1. Run scan with --token to import the file
+	if err := RunTokenCLI([]string{"scan", "--token", id}); err != nil {
+		t.Fatalf("first scan --token failed: %v", err)
+	}
+
+	// 2. Run scan again offline; assert nothing left to import
+	store2, err := OpenStore(storePath)
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer func() { _ = store2.Close() }()
+
+	entries, err := store2.UploadsFor(id)
+	if err != nil {
+		t.Fatalf("UploadsFor: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly 1 upload entry, got %d", len(entries))
+	}
+	if entries[0].Name != "image.png" {
+		t.Errorf("entry.Name = %q; want %q", entries[0].Name, "image.png")
+	}
+
+	// 3. Scan a second time - should report 0 untracked files
+	var stdout, stderr strings.Builder
+	execCtx := ExecutionContext{
+		Store:     store2,
+		UploadDir: uploadDir,
+		Stdout:    &stdout,
+		Stderr:    &stderr,
+	}
+	if err := runScan(execCtx, []string{}); err != nil {
+		t.Fatalf("second scan failed: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "all files on disk are already tracked") {
+		t.Errorf("second scan should report all tracked, got output:\n%s", stdout.String())
 	}
 }

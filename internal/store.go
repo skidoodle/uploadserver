@@ -130,6 +130,9 @@ type TokenStore struct {
 
 	reservationMu sync.Mutex
 	reservations  map[string]map[UploadReservation]uploadReservation
+
+	lastUsedMu  sync.Mutex
+	lastUsedMap map[string]time.Time
 }
 
 // UploadReservation identifies an in-flight upload admitted against a token's
@@ -185,6 +188,7 @@ func OpenStore(path string) (*TokenStore, error) {
 	return &TokenStore{
 		db:           db,
 		reservations: make(map[string]map[UploadReservation]uploadReservation),
+		lastUsedMap:  make(map[string]time.Time),
 	}, nil
 }
 
@@ -248,8 +252,11 @@ func migrateUploadEntries(tx *bolt.Tx) error {
 	return nil
 }
 
-// Close closes the underlying bbolt database.
-func (s *TokenStore) Close() error { return s.db.Close() }
+// Close closes the underlying bbolt database after flushing any pending last-used timestamps.
+func (s *TokenStore) Close() error {
+	_ = s.FlushLastUsed()
+	return s.db.Close()
+}
 
 // Path returns the filesystem path of the underlying bbolt database file.
 func (s *TokenStore) Path() string {
@@ -368,6 +375,7 @@ func (s *TokenStore) Authenticate(secret string) (TokenRecord, bool) {
 	if match == nil || match.Disabled {
 		return TokenRecord{}, false
 	}
+	s.TouchLastUsed(match.ID)
 	match.LastUsed = time.Now().UTC()
 	return *match, true
 }
@@ -1030,6 +1038,41 @@ func (s *TokenStore) Ping() error {
 	})
 }
 
+// TouchLastUsed records an in-memory timestamp for token activity to be flushed to DB.
+func (s *TokenStore) TouchLastUsed(id string) {
+	s.lastUsedMu.Lock()
+	defer s.lastUsedMu.Unlock()
+	if s.lastUsedMap != nil {
+		s.lastUsedMap[id] = time.Now().UTC()
+	}
+}
+
+// FlushLastUsed persists all pending token last-used timestamps into bbolt.
+func (s *TokenStore) FlushLastUsed() error {
+	s.lastUsedMu.Lock()
+	if len(s.lastUsedMap) == 0 {
+		s.lastUsedMu.Unlock()
+		return nil
+	}
+	pending := s.lastUsedMap
+	s.lastUsedMap = make(map[string]time.Time)
+	s.lastUsedMu.Unlock()
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		for id, t := range pending {
+			r, err := getRecord(tx, id)
+			if err == nil && r != nil {
+				if t.After(r.LastUsed) {
+					r.LastUsed = t
+					_ = putRecord(tx, r)
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// putUploadEntry marshals and stores an UploadEntry in the given bucket.
 func putUploadEntry(bucket *bolt.Bucket, entry UploadEntry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -1038,6 +1081,7 @@ func putUploadEntry(bucket *bolt.Bucket, entry UploadEntry) error {
 	return bucket.Put([]byte(entry.Name), data)
 }
 
+// readUploadEntries reads all UploadEntries from the given bucket.
 func readUploadEntries(bucket *bolt.Bucket) ([]UploadEntry, error) {
 	if bucket == nil {
 		return nil, nil
@@ -1260,25 +1304,70 @@ func (idx *FileIndex) Count() int {
 	return len(idx.files)
 }
 
-// RemoveUploadEntry removes a specific upload entry by filename in O(1).
+// RemoveUploadEntry removes a specific upload entry by filename in O(1) and reclaims active storage.
 func (s *TokenStore) RemoveUploadEntry(tokenID, filename string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(uploadBucket).Bucket([]byte(tokenID))
 		if bucket == nil {
 			return nil
 		}
-		return bucket.Delete([]byte(filename))
+		raw := bucket.Get([]byte(filename))
+		var entry UploadEntry
+		if raw != nil {
+			_ = json.Unmarshal(raw, &entry)
+		}
+		if err := bucket.Delete([]byte(filename)); err != nil {
+			return err
+		}
+
+		if entry.Size > 0 {
+			r, err := getRecord(tx, tokenID)
+			if err == nil && r != nil {
+				if r.Usage.Bytes >= entry.Size {
+					r.Usage.Bytes -= entry.Size
+				} else {
+					r.Usage.Bytes = 0
+				}
+				if r.Usage.Uploads > 0 {
+					r.Usage.Uploads--
+				}
+				now := time.Now().UTC()
+				if samePeriod(r.Usage.Period, now) {
+					if r.Usage.MonthBytes >= entry.Size {
+						r.Usage.MonthBytes -= entry.Size
+					} else {
+						r.Usage.MonthBytes = 0
+					}
+					if r.Usage.MonthUploads > 0 {
+						r.Usage.MonthUploads--
+					}
+				}
+				return putRecord(tx, r)
+			}
+		}
+		return nil
 	})
 }
 
-// RemoveAllUploadEntries deletes the entire upload entry list for a token.
+// RemoveAllUploadEntries deletes the entire upload entry list for a token and resets active storage usage.
 func (s *TokenStore) RemoveAllUploadEntries(tokenID string) error {
 	return s.db.Update(func(tx *bolt.Tx) error {
 		root := tx.Bucket(uploadBucket)
 		if root.Bucket([]byte(tokenID)) == nil {
 			return nil
 		}
-		return root.DeleteBucket([]byte(tokenID))
+		if err := root.DeleteBucket([]byte(tokenID)); err != nil {
+			return err
+		}
+		r, err := getRecord(tx, tokenID)
+		if err == nil && r != nil {
+			r.Usage.Bytes = 0
+			r.Usage.Uploads = 0
+			r.Usage.MonthBytes = 0
+			r.Usage.MonthUploads = 0
+			return putRecord(tx, r)
+		}
+		return nil
 	})
 }
 

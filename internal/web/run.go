@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 	"uploadserver/internal"
@@ -48,7 +49,13 @@ func Run() (err error) {
 	}
 	slog.Info("indexed files across all tokens", "count", fileIndex.Count())
 
-	srv := &server{cfg: cfg, store: store, fileIndex: fileIndex}
+	srv := &server{
+		cfg:          cfg,
+		store:        store,
+		fileIndex:    fileIndex,
+		sessions:     newSessionStore(),
+		loginLimiter: newRateLimiter(5, time.Minute),
+	}
 	srv.announce(secret, created)
 
 	httpSrv := &http.Server{
@@ -71,8 +78,29 @@ func Run() (err error) {
 	purgeSched.Start()
 	defer purgeSched.Stop()
 
+	// Start background flusher for token LastUsed timestamps.
+	lastUsedStop := make(chan struct{})
+	var lastUsedWg sync.WaitGroup
+	lastUsedWg.Go(func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-lastUsedStop:
+				_ = store.FlushLastUsed()
+				return
+			case <-ticker.C:
+				_ = store.FlushLastUsed()
+			}
+		}
+	})
+	defer func() {
+		close(lastUsedStop)
+		lastUsedWg.Wait()
+	}()
+
 	// Start control socket IPC server for live CLI commands
-	ipcServer, err := internal.StartIPCServer(cfg.StorePath, store, cfg)
+	ipcServer, err := internal.StartIPCServer(cfg.StorePath, store, fileIndex, cfg)
 	if err != nil {
 		slog.Warn("failed to start control socket ipc server", "error", err)
 	} else if ipcServer != nil {

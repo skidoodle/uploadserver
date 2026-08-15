@@ -775,23 +775,92 @@ dialog {
 }
 
 .player-vol-container {
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 0.15rem;
+    gap: 0.25rem;
 }
 
 .player-vol-slider {
-    width: 4rem;
+    -webkit-appearance: none;
+    appearance: none;
+    width: 4.5rem;
     height: 4px;
-    accent-color: #3b82f6;
+    background: linear-gradient(to right, #3b82f6 0%, #3b82f6 var(--vol-percent, 100%), rgba(255, 255, 255, 0.25) var(--vol-percent, 100%), rgba(255, 255, 255, 0.25) 100%);
+    border-radius: 4px;
     cursor: pointer;
-    outline: none;
-    opacity: 0.85;
+    outline: none !important;
+    border: none;
+    margin: 0;
+    padding: 0;
+    opacity: 0.9;
     transition: opacity 0.15s ease;
+    box-shadow: none !important;
 }
 
-.player-vol-slider:hover {
+.player-vol-slider:hover,
+.player-vol-slider:focus,
+.player-vol-slider:active,
+.player-vol-slider:focus-visible {
     opacity: 1;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+.player-vol-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    background: transparent;
+    border-radius: 4px;
+    border: none;
+}
+
+.player-vol-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #3b82f6;
+    cursor: pointer;
+    border: 2px solid #ffffff;
+    margin-top: -4px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    outline: none !important;
+    transition: transform 0.1s ease;
+}
+
+.player-vol-slider:hover::-webkit-slider-thumb,
+.player-vol-slider:active::-webkit-slider-thumb {
+    transform: scale(1.15);
+}
+
+.player-vol-slider::-moz-range-track {
+    height: 4px;
+    background: transparent;
+    border-radius: 4px;
+    border: none;
+}
+
+.player-vol-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #3b82f6;
+    cursor: pointer;
+    border: 2px solid #ffffff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+    outline: none !important;
+    transition: transform 0.1s ease;
+}
+
+.player-vol-slider:hover::-moz-range-thumb,
+.player-vol-slider:active::-moz-range-thumb {
+    transform: scale(1.15);
+}
+
+.player-vol-slider::-moz-range-progress {
+    background: #3b82f6;
+    height: 4px;
+    border-radius: 4px;
 }
 
 .lightbox-audio-box {

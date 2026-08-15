@@ -290,6 +290,17 @@ label .csel {
     width: 100%;
 }
 
+.lim-grid .csel-btn {
+    padding: 0.35rem 0.5rem;
+    padding-right: 1.8rem;
+    font-size: 0.85rem;
+    box-sizing: border-box;
+}
+
+.lim-grid .dlg-label {
+    margin-bottom: 0;
+}
+
 .act {
     font-size: 0.8rem;
     padding: 0.28rem 0.6rem;

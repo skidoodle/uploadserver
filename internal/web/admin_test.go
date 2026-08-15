@@ -4,8 +4,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"uploadserver/internal"
 )
@@ -206,5 +208,72 @@ func TestUploadsTemplateMediaTypes(t *testing.T) {
 		if !strings.Contains(body, expectedSnippet) {
 			t.Errorf("rendered template missing expected snippet %q for file %s", expectedSnippet, tf.filename)
 		}
+	}
+}
+
+func TestAdmin_SessionStoreAndRateLimiting(t *testing.T) {
+	dir := t.TempDir()
+	store, err := internal.OpenStore(filepath.Join(dir, "tokens.db"))
+	if err != nil {
+		t.Fatalf("OpenStore: %v", err)
+	}
+	defer func() { _ = store.Close() }()
+
+	_, secret, err := store.Add("admin", internal.RoleAdmin)
+	if err != nil {
+		t.Fatalf("store.Add: %v", err)
+	}
+
+	srv := &server{
+		cfg:          internal.Config{AdminEnabled: true},
+		store:        store,
+		sessions:     newSessionStore(),
+		loginLimiter: newRateLimiter(2, time.Minute),
+	}
+
+	// 1. First login attempt with valid token and CSRF
+	csrf := generateCSRF("")
+	form := url.Values{
+		"token": {secret},
+		"_csrf": {csrf},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/_/login", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: csrf})
+	rec := httptest.NewRecorder()
+
+	srv.handleAdminLogin(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("login expected status 303, got %d", rec.Code)
+	}
+
+	// Check that admin_token cookie was set to a random session ID, not the raw secret
+	cookies := rec.Result().Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == adminCookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected admin_token cookie to be set")
+	}
+	if sessionCookie.Value == secret {
+		t.Error("admin_token cookie must NOT contain raw bearer secret")
+	}
+
+	// 2. Second login attempt within limit (allowed)
+	rec2 := httptest.NewRecorder()
+	srv.handleAdminLogin(rec2, req)
+	if rec2.Code != http.StatusSeeOther {
+		t.Fatalf("second login expected status 303, got %d", rec2.Code)
+	}
+
+	// 3. Third login attempt (rate limited)
+	rec3 := httptest.NewRecorder()
+	srv.handleAdminLogin(rec3, req)
+	if rec3.Code != http.StatusTooManyRequests {
+		t.Errorf("third login expected status 429 Too Many Requests, got %d", rec3.Code)
 	}
 }

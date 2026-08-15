@@ -190,9 +190,15 @@
 			<form method="POST" id="dlgForm" action="">
 				<input type="hidden" name="_csrf" value="{{ .CSRF }}">
 				<p id="dlgmsg"></p>
+				<label class="dlg-label" id="deleteConfirmGroup">Type <code id="deleteTargetPhrase"></code> to confirm
+					<input type="text" name="confirm_phrase" id="deleteConfirmInput"
+						autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+						onpaste="return false;" ondrop="return false;" required>
+				</label>
+				<div id="deletePasteWarning" class="label-err" hidden>pasting is disabled</div>
 				<div class="bar bar-end">
 					<button type="button" commandfor="dlg" command="close">Cancel</button>
-					<button type="submit" class="danger">Delete</button>
+					<button type="button" class="danger" id="deleteSubmitBtn" commandfor="dlg" command="--submit-delete" disabled>Delete</button>
 				</div>
 			</form>
 		</dialog>
@@ -261,8 +267,7 @@
 				<p class="dlg-title">Giveaway Invites</p>
 				<p class="dlg-desc">Grant additional invite credits to users with the <code>upload</code> role.</p>
 				<div class="lim-grid" style="margin-bottom: 0.8rem;">
-					<div class="dlg-label">
-						<span>Target</span>
+					<label class="dlg-label">Target
 						<div class="csel" id="giveawayModeSel">
 							<button type="button" class="csel-btn" id="giveawayModeBtn" commandfor="giveawayModeSel" command="--toggle-select">All uploaders</button>
 							<div class="csel-opts" id="giveawayModeOpts">
@@ -271,7 +276,7 @@
 							</div>
 						</div>
 						<input type="hidden" name="mode" id="giveawayMode" value="all">
-					</div>
+					</label>
 					<label class="dlg-label">Invites per user
 						<input type="number" name="count" min="1" max="1000" value="1" required>
 					</label>

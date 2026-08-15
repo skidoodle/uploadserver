@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"uploadserver/internal"
 )
@@ -31,6 +32,82 @@ const (
 	flashErrorName  = "flash_error"
 	flashNoticeName = "flash_notice"
 )
+
+type sessionInfo struct {
+	tokenID   string
+	role      string
+	expiresAt time.Time
+}
+
+type sessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]sessionInfo
+}
+
+func newSessionStore() *sessionStore {
+	return &sessionStore{
+		sessions: make(map[string]sessionInfo),
+	}
+}
+
+// Create creates a new session with the given tokenID, role, and TTL.
+// It returns the session ID.
+//
+// The session ID is a random hex string of 32 bytes.
+func (st *sessionStore) Create(tokenID, role string, ttl time.Duration) string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("crypto/rand: " + err.Error())
+	}
+	id := hex.EncodeToString(b[:])
+
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.sessions[id] = sessionInfo{
+		tokenID:   tokenID,
+		role:      role,
+		expiresAt: time.Now().Add(ttl),
+	}
+	return id
+}
+
+// Get returns the session info for the given session ID, if it exists and is not expired.
+// If the session does not exist or is expired, it returns an empty sessionInfo and false.
+//
+// The session info contains the token ID, role, and expiration time.
+func (st *sessionStore) Get(sessionID string) (sessionInfo, bool) {
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	info, ok := st.sessions[sessionID]
+	if !ok || time.Now().After(info.expiresAt) {
+		return sessionInfo{}, false
+	}
+	return info, true
+}
+
+// Delete deletes the session with the given session ID, if it exists.
+// If the session does not exist, it does nothing.
+//
+// This method is safe to call concurrently with other methods on the same sessionStore.
+func (st *sessionStore) Delete(sessionID string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	delete(st.sessions, sessionID)
+}
+
+// DeleteByTokenID deletes all sessions with the given token ID, if they exist.
+// If no sessions have the token ID, it does nothing.
+//
+// This method is safe to call concurrently with other methods on the same sessionStore.
+func (st *sessionStore) DeleteByTokenID(tokenID string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for id, s := range st.sessions {
+		if s.tokenID == tokenID {
+			delete(st.sessions, id)
+		}
+	}
+}
 
 // setCookie writes a state cookie hardened for an admin surface: HttpOnly and
 // SameSite=Strict always, plus Secure whenever the request came in over HTTPS so
@@ -79,6 +156,7 @@ func generateCSRF(sessionSecret string) string {
 	return nonce + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
+// csrfForRequest returns the CSRF token for the given request, either from the CSRF cookie or a new token if not present.
 func csrfForRequest(r *http.Request) string {
 	if cookie, err := r.Cookie(adminCookieName); err == nil {
 		return generateCSRF(cookie.Value)
@@ -124,7 +202,7 @@ func (s *server) requireSession(w http.ResponseWriter, r *http.Request) (interna
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return internal.TokenRecord{}, false
 	}
-	rec, ok := s.store.Authenticate(c.Value)
+	rec, ok := s.validateSessionCookie(c)
 	if !ok {
 		s.clearSessionCookies(w, r)
 		http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -159,6 +237,7 @@ func (s *server) requireRootCookie(w http.ResponseWriter, r *http.Request) (inte
 	return rec, true
 }
 
+// clearSessionCookies clears all session cookies, including the admin token, CSRF token, and flash messages.
 func (s *server) clearSessionCookies(w http.ResponseWriter, r *http.Request) {
 	for _, name := range []string{adminCookieName, csrfCookieName, flashSecretName, flashErrorName, flashNoticeName} {
 		s.clearCookie(w, r, name)
@@ -178,7 +257,7 @@ func (s *server) handleAdminPage(w http.ResponseWriter, r *http.Request) {
 	sessionExpired := false
 
 	if c, err := r.Cookie(adminCookieName); err == nil {
-		if rec, ok := s.store.Authenticate(c.Value); ok {
+		if rec, ok := s.validateSessionCookie(c); ok {
 			data.LoggedIn = true
 			data.IsAdmin = internal.IsAdmin(rec.Role)
 			data.IsRoot = (rec.Role == internal.RoleRoot)
@@ -257,6 +336,11 @@ func roleActionName(oldRole, newRole string) string {
 // handleAdminLogin checks the submitted token and, if valid, drops the session cookie
 // and sends the user to the dashboard.
 func (s *server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
+	if s.loginLimiter != nil && !s.loginLimiter.Allow(clientIP(r, s.cfg.TrustProxyHeaders)) {
+		slog.Warn("login rate limited", "ip", clientIP(r, s.cfg.TrustProxyHeaders))
+		http.Error(w, "too many login attempts, please try again later", http.StatusTooManyRequests)
+		return
+	}
 	if !validateCSRF(r) {
 		slog.Warn("login failed", "reason", "invalid_csrf", "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 		s.redirectWithError(w, r, "invalid request")
@@ -274,8 +358,12 @@ func (s *server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		s.redirectWithError(w, r, "invalid token")
 		return
 	}
-	s.setAdminCookie(w, r, token)
-	s.setCSRFCookie(w, r, generateCSRF(token))
+	if s.sessions == nil {
+		s.sessions = newSessionStore()
+	}
+	sessionID := s.sessions.Create(rec.ID, rec.Role, 7*24*time.Hour)
+	s.setAdminCookie(w, r, sessionID)
+	s.setCSRFCookie(w, r, generateCSRF(sessionID))
 	s.clearCookie(w, r, flashErrorName)
 	slog.Info("login succeeded", "id", rec.ID, "label", internal.SanitizeLog(rec.Label), "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	redirect(w, r)
@@ -291,6 +379,9 @@ func (s *server) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 	if !validateCSRF(r) {
 		redirect(w, r)
 		return
+	}
+	if c, err := r.Cookie(adminCookieName); err == nil && s.sessions != nil {
+		s.sessions.Delete(c.Value)
 	}
 	s.clearSessionCookies(w, r)
 	slog.Info("logout", "id", actor.ID, "ip", clientIP(r, s.cfg.TrustProxyHeaders))
@@ -406,6 +497,13 @@ func (s *server) handleAdminDeleteTokenSSR(w http.ResponseWriter, r *http.Reques
 	id := target.ID
 	if !internal.IsAdmin(userRec.Role) && userRec.ID != id {
 		s.redirectWithError(w, r, "forbidden: admin token or self required")
+		return
+	}
+
+	phrase := strings.TrimSpace(r.FormValue("confirm_phrase"))
+	expectedPhrase := "DELETE " + id
+	if phrase != "" && phrase != expectedPhrase && phrase != "DELETE" && phrase != id {
+		s.redirectWithError(w, r, fmt.Sprintf("invalid confirmation phrase: must type %q", expectedPhrase))
 		return
 	}
 
@@ -880,7 +978,7 @@ func (s *server) handleCancelPurgeMedia(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleDeleteAccount lets an authenticated user delete all their uploads and
-// remove their own token. Requires {"confirm":true} in the request body.
+// remove their own token. Requires confirm_phrase or {"confirm":true} in the request body.
 func (s *server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	rec, ok := s.authenticate(r)
 	if !ok {
@@ -889,14 +987,20 @@ func (s *server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Confirm bool `json:"confirm"`
+		ConfirmPhrase string `json:"confirm_phrase"`
+		Confirm       bool   `json:"confirm"`
 	}
 	if err := decodeJSON(w, r, &req, false); err != nil {
 		httpError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	if !req.Confirm {
-		httpError(w, http.StatusBadRequest, `send {"confirm":true} to delete your account`)
+	expectedPhrase := "DELETE " + rec.ID
+	if req.ConfirmPhrase != "" && req.ConfirmPhrase != expectedPhrase && req.ConfirmPhrase != "DELETE" && req.ConfirmPhrase != rec.ID {
+		httpError(w, http.StatusBadRequest, fmt.Sprintf("invalid confirmation phrase (must be %q)", expectedPhrase))
+		return
+	}
+	if !req.Confirm && req.ConfirmPhrase == "" {
+		httpError(w, http.StatusBadRequest, fmt.Sprintf(`send {"confirm":true} or {"confirm_phrase":%q} to delete your account`, expectedPhrase))
 		return
 	}
 	if err := s.store.Remove(rec.ID); err != nil {
@@ -907,6 +1011,9 @@ func (s *server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		slog.Error("account deleted but media purge failed", "id", rec.ID, "error", err)
 		httpError(w, http.StatusInternalServerError, "account deleted, but media purge failed")
 		return
+	}
+	if s.sessions != nil {
+		s.sessions.DeleteByTokenID(rec.ID)
 	}
 	slog.Info("account self-deleted", "id", internal.SanitizeLog(rec.ID), "label", internal.SanitizeLog(rec.Label), "ip", clientIP(r, s.cfg.TrustProxyHeaders))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": rec.ID})

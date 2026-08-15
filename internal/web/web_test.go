@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"uploadserver/internal"
 )
 
@@ -42,7 +43,7 @@ func newTestServer(t *testing.T) (*server, http.Handler, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &server{cfg: cfg, store: store, fileIndex: fileIndex}
+	srv := &server{cfg: cfg, store: store, fileIndex: fileIndex, sessions: newSessionStore()}
 	return srv, srv.routes(), secret
 }
 
@@ -846,7 +847,7 @@ func TestTokenRename(t *testing.T) {
 }
 
 func TestGatedAssets(t *testing.T) {
-	_, h, adminSecret := newTestServer(t)
+	srv, h, adminSecret := newTestServer(t)
 
 	// Unauthenticated request to /_/uploads.css => 404
 	req := httptest.NewRequest("GET", "/_/uploads.css", nil)
@@ -880,6 +881,21 @@ func TestGatedAssets(t *testing.T) {
 	h.ServeHTTP(recJSAuth, reqJSAuth)
 	if recJSAuth.Code != http.StatusOK {
 		t.Fatalf("auth /_/uploads.js status = %d, want 200", recJSAuth.Code)
+	}
+
+	// Request with ephemeral session token => 200 OK and text/css MIME type
+	adminRec, _ := srv.store.Authenticate(adminSecret)
+	sessID := srv.sessions.Create(adminRec.ID, adminRec.Role, time.Hour)
+
+	reqCSS := httptest.NewRequest("GET", "/_/admin.css", nil)
+	reqCSS.AddCookie(&http.Cookie{Name: adminCookieName, Value: sessID})
+	recCSS := httptest.NewRecorder()
+	h.ServeHTTP(recCSS, reqCSS)
+	if recCSS.Code != http.StatusOK {
+		t.Fatalf("session auth /_/admin.css status = %d, want 200", recCSS.Code)
+	}
+	if !strings.Contains(recCSS.Header().Get("Content-Type"), "text/css") {
+		t.Errorf("expected text/css Content-Type, got %q", recCSS.Header().Get("Content-Type"))
 	}
 }
 
@@ -1445,5 +1461,65 @@ func TestUploadUserSelfService(t *testing.T) {
 	}
 	if _, found := srv.store.GetRecord(uploaderID); found {
 		t.Errorf("user token %s still exists after account self deletion", uploaderID)
+	}
+}
+
+func TestUpload_HostHeaderValidation(t *testing.T) {
+	srv, h, secret := newTestServer(t)
+	// Clear BaseURL and configure AllowedHosts
+	srv.cfg.BaseURL = ""
+	srv.cfg.AllowedHosts = []string{"cdn.myhomelab.net", "u.myhomelab.net"}
+
+	// 1. Upload with untrusted / spoofed Host header
+	body, ct := multipartBody(t, "file", "test.txt", "hello")
+	req := httptest.NewRequest(http.MethodPost, "/", body)
+	req.Header.Set("Content-Type", ct)
+	req.Header.Set("Authorization", "Bearer "+secret)
+	req.Host = "attacker-domain.evil"
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, want 200", rec.Code)
+	}
+	urlResult := strings.TrimSpace(rec.Body.String())
+	if strings.Contains(urlResult, "attacker-domain.evil") {
+		t.Errorf("returned URL %q must not contain attacker Host", urlResult)
+	}
+	if !strings.HasPrefix(urlResult, "http://cdn.myhomelab.net/") {
+		t.Errorf("returned URL %q should fallback to first allowed host", urlResult)
+	}
+}
+
+func TestFiles_PDFSandboxedInline(t *testing.T) {
+	_, h, secret := newTestServer(t)
+
+	body, ct := multipartBody(t, "file", "doc.pdf", "%PDF-1.4 sample")
+	req := httptest.NewRequest(http.MethodPost, "/", body)
+	req.Header.Set("Content-Type", ct)
+	req.Header.Set("Authorization", "Bearer "+secret)
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("upload status = %d, want 200", rec.Code)
+	}
+	fileURL := strings.TrimSpace(rec.Body.String())
+	fileName := fileURL[strings.LastIndex(fileURL, "/")+1:]
+
+	reqGet := httptest.NewRequest(http.MethodGet, "/"+fileName, nil)
+	recGet := httptest.NewRecorder()
+	h.ServeHTTP(recGet, reqGet)
+
+	if recGet.Code != http.StatusOK {
+		t.Fatalf("GET /%s status = %d, want 200", fileName, recGet.Code)
+	}
+	disposition := recGet.Header().Get("Content-Disposition")
+	if disposition != "" {
+		t.Errorf("PDF Content-Disposition = %q; want inline (empty)", disposition)
+	}
+	csp := recGet.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "sandbox") {
+		t.Errorf("PDF Content-Security-Policy = %q; want sandbox directive", csp)
 	}
 }

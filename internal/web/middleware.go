@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"uploadserver/internal"
 )
@@ -114,4 +115,51 @@ func (s *server) logging(next http.Handler) http.Handler {
 			)
 		}
 	})
+}
+
+// ipRateLimiter tracks per-IP request rates in a thread-safe sliding window.
+type ipRateLimiter struct {
+	mu     sync.Mutex
+	limits map[string]*rateCounter
+	rate   int
+	window time.Duration
+}
+
+type rateCounter struct {
+	count     int
+	resetTime time.Time
+}
+
+// newRateLimiter creates a new ipRateLimiter with the specified rate and window duration.
+func newRateLimiter(rate int, window time.Duration) *ipRateLimiter {
+	return &ipRateLimiter{
+		limits: make(map[string]*rateCounter),
+		rate:   rate,
+		window: window,
+	}
+}
+
+// Allow checks if the given IP is allowed to make a request based on the rate limiter's configuration.
+func (rl *ipRateLimiter) Allow(ip string) bool {
+	if rl == nil || rl.rate <= 0 {
+		return true
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	entry, ok := rl.limits[ip]
+	if !ok || now.After(entry.resetTime) {
+		rl.limits[ip] = &rateCounter{
+			count:     1,
+			resetTime: now.Add(rl.window),
+		}
+		return true
+	}
+
+	if entry.count >= rl.rate {
+		return false
+	}
+	entry.count++
+	return true
 }

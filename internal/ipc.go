@@ -56,12 +56,13 @@ type IPCServer struct {
 	cancel   context.CancelFunc
 	wg       sync.WaitGroup
 	store    *TokenStore
+	index    IndexUpdater
 	cfg      Config
 }
 
 // StartIPCServer initializes and starts listening on the control socket for the given storePath.
 // If IPC is disabled, it returns (nil, nil).
-func StartIPCServer(storePath string, store *TokenStore, cfg Config) (*IPCServer, error) {
+func StartIPCServer(storePath string, store *TokenStore, index IndexUpdater, cfg Config) (*IPCServer, error) {
 	sockPath := SocketPath(storePath)
 	if sockPath == "" {
 		return nil, nil
@@ -98,6 +99,7 @@ func StartIPCServer(storePath string, store *TokenStore, cfg Config) (*IPCServer
 		ctx:      ctx,
 		cancel:   cancel,
 		store:    store,
+		index:    index,
 		cfg:      cfg,
 	}
 
@@ -177,6 +179,7 @@ func (s *IPCServer) handleConn(conn net.Conn) {
 
 	execCtx := ExecutionContext{
 		Store:     s.store,
+		Index:     s.index,
 		UploadDir: uploadDir,
 		Stdout:    stdoutWriter,
 		Stderr:    stderrWriter,

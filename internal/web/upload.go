@@ -187,7 +187,20 @@ func publicURL(cfg internal.Config, r *http.Request, name string) string {
 		if requestIsHTTPS(r, cfg.TrustProxyHeaders) {
 			scheme = "https"
 		}
-		base = scheme + "://" + r.Host
+		host := r.Host
+		if len(cfg.AllowedHosts) > 0 {
+			matched := false
+			for _, h := range cfg.AllowedHosts {
+				if strings.EqualFold(h, host) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				host = cfg.AllowedHosts[0]
+			}
+		}
+		base = scheme + "://" + host
 	}
 
 	if cfg.StripExtension {
