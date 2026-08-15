@@ -163,6 +163,7 @@ Everything is set through environment variables:
 | `LISTEN_ADDR` | Address to listen on | `:8080` |
 | `UPLOAD_DIR` | Directory uploads are written to | `./data` |
 | `BASE_URL` | Public URL prefix for returned links | the request's host |
+| `ALLOWED_HOSTS` | Comma-separated list of allowed `Host` headers for returned URLs when `BASE_URL` is empty | empty (accepts request `Host`) |
 | `UPLOAD_FIELD` | Multipart form field name | `file` |
 | `TOKEN_STORE` | Path to the bbolt token database | `./state/tokens.db` |
 | `MAX_UPLOAD_BYTES` | Max upload size in bytes | `1073741824` (1 GiB) |

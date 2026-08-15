@@ -13,6 +13,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 		"LISTEN_ADDR", "UPLOAD_DIR", "BASE_URL", "UPLOAD_FIELD",
 		"TOKEN_STORE", "ENABLE_ADMIN", "STRIP_EXTENSION", "SERVE_FILES",
 		"RANDOM_NAME_LENGTH", "MAX_UPLOAD_BYTES", "TRUST_PROXY_HEADERS", "REQUEST_TIMEOUT",
+		"ALLOWED_HOSTS",
 	}
 	for _, v := range envVars {
 		_ = os.Unsetenv(v)
@@ -56,6 +57,9 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.PurgeGracePeriod != 24*time.Hour {
 		t.Errorf("cfg.PurgeGracePeriod = %s; want 24h", cfg.PurgeGracePeriod)
 	}
+	if len(cfg.AllowedHosts) != 0 {
+		t.Errorf("cfg.AllowedHosts = %v; want empty", cfg.AllowedHosts)
+	}
 }
 
 func TestLoadConfigCustomEnv(t *testing.T) {
@@ -70,6 +74,7 @@ func TestLoadConfigCustomEnv(t *testing.T) {
 	t.Setenv("TRUST_PROXY_HEADERS", "true")
 	t.Setenv("REQUEST_TIMEOUT", "45s")
 	t.Setenv("PURGE_GRACE_PERIOD", "7d")
+	t.Setenv("ALLOWED_HOSTS", "cdn.example.com, u.example.com, img.example.com")
 
 	cfg, err := LoadConfig()
 	if err != nil {
@@ -108,6 +113,15 @@ func TestLoadConfigCustomEnv(t *testing.T) {
 	}
 	if cfg.PurgeGracePeriod != 7*24*time.Hour {
 		t.Errorf("cfg.PurgeGracePeriod = %s; want 168h", cfg.PurgeGracePeriod)
+	}
+	wantHosts := []string{"cdn.example.com", "u.example.com", "img.example.com"}
+	if len(cfg.AllowedHosts) != len(wantHosts) {
+		t.Fatalf("cfg.AllowedHosts len = %d; want %d", len(cfg.AllowedHosts), len(wantHosts))
+	}
+	for i, h := range wantHosts {
+		if cfg.AllowedHosts[i] != h {
+			t.Errorf("cfg.AllowedHosts[%d] = %q; want %q", i, cfg.AllowedHosts[i], h)
+		}
 	}
 }
 
