@@ -558,7 +558,9 @@
   }
 
   function updateModalContent() {
-    if (currentIndex < 0 || currentIndex >= mediaItems.length) return;
+    if (mediaItems.length === 0) return;
+    if (currentIndex < 0) currentIndex = 0;
+    if (currentIndex >= mediaItems.length) currentIndex = mediaItems.length - 1;
     const item = mediaItems[currentIndex];
     stopPlayback();
 
@@ -721,7 +723,6 @@
   });
 
   function navigate(direction) {
-    stopPlayback();
     if (direction === 'next') {
       if (currentIndex < mediaItems.length - 1) {
         currentIndex++;
@@ -799,8 +800,6 @@
     }
   });
 
-  modalPrev?.addEventListener('click', () => navigate('prev'));
-  modalNext?.addEventListener('click', () => navigate('next'));
   modalClose?.addEventListener('click', () => closeModal());
 
   modal.addEventListener('command', (e) => {
