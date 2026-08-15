@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # check=skip=SecretsUsedInArgOrEnv
-FROM golang:1.26.5-alpine AS build
+FROM golang:1.26.6-alpine AS build
 ENV GOTOOLCHAIN=local
 WORKDIR /src
 
