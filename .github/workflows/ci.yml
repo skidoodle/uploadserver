@@ -128,7 +128,9 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --snapshot --skip=publish --clean
+          args: release --snapshot --skip=publish,announce,validate --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     name: Publish GitHub release
