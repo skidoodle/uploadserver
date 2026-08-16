@@ -17,8 +17,9 @@ func findStaticDir() string {
 		filepath.Join("..", "..", "internal", "web", "static"),
 	}
 	for _, c := range candidates {
-		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
-			return c
+		clean := filepath.Clean(c)
+		if fi, err := os.Stat(clean); err == nil && fi.IsDir() { // #nosec G304 G703 -- Safe build-time static directory discovery
+			return clean
 		}
 	}
 	return filepath.Join("internal", "web", "static")
@@ -32,7 +33,7 @@ func main() {
 
 	fmt.Printf("==> Bundling static assets using esbuild Go API in %s\n", staticDir)
 
-	entries, err := os.ReadDir(staticDir)
+	entries, err := os.ReadDir(filepath.Clean(staticDir)) // #nosec G304 G703 -- Safe build-time directory scanning
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading static dir: %v\n", err)
 		os.Exit(1)
@@ -48,7 +49,7 @@ func main() {
 
 		// Bundle CSS
 		cssEntry := filepath.Join(domainDir, "css", domain+".css")
-		if _, err := os.Stat(cssEntry); err == nil {
+		if _, err := os.Stat(filepath.Clean(cssEntry)); err == nil { // #nosec G304 G703 -- Safe build-time asset path check
 			outFile := filepath.Join(domainDir, "css", domain+".bundle.css")
 			fmt.Printf("    Bundling CSS: %s -> %s\n", cssEntry, outFile)
 
@@ -76,7 +77,7 @@ func main() {
 
 		// Bundle JS
 		jsEntry := filepath.Join(domainDir, "js", domain+".js")
-		if _, err := os.Stat(jsEntry); err == nil {
+		if _, err := os.Stat(filepath.Clean(jsEntry)); err == nil { // #nosec G304 G703 -- Safe build-time asset path check
 			outFile := filepath.Join(domainDir, "js", domain+".bundle.js")
 			fmt.Printf("    Bundling JS:  %s -> %s\n", jsEntry, outFile)
 

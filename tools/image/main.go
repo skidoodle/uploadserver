@@ -49,8 +49,8 @@ func main() {
 	heightFlag := flag.Int("height", 300, "Image height in pixels")
 	flag.Parse()
 
-	targetDir := *dirFlag
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	targetDir := filepath.Clean(*dirFlag)
+	if err := os.MkdirAll(targetDir, 0750); err != nil { // #nosec G301 G703 -- Directory permission restricted to 0750 for test mock data
 		fmt.Fprintf(os.Stderr, "Error creating output directory: %v\n", err)
 		os.Exit(1)
 	}
@@ -78,7 +78,7 @@ func main() {
 				}
 
 				filename := fmt.Sprintf("%s.%s", name, chosenExt)
-				filePath := filepath.Join(targetDir, filename)
+				filePath := filepath.Clean(filepath.Join(targetDir, filename))
 
 				img := image.NewRGBA(image.Rect(0, 0, *widthFlag, *heightFlag))
 				b := make([]byte, 3)
@@ -91,7 +91,7 @@ func main() {
 					}
 				}
 
-				f, err := os.Create(filePath)
+				f, err := os.Create(filePath) // #nosec G304 G703 -- Safe test mock image creation
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Failed to create %s: %v\n", filePath, err)
 					continue
