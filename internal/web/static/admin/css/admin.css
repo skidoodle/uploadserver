@@ -1,0 +1,12 @@
+@import "../../shared/css/variables.css";
+@import "../../shared/css/base.css";
+@import "../../shared/css/buttons.css";
+@import "../../shared/css/forms.css";
+@import "../../shared/css/dialog.css";
+@import "../../shared/css/dropdown.css";
+@import "../../shared/css/context-menu.css";
+@import "../../shared/css/secret-card.css";
+@import "../../shared/css/toolbar.css";
+@import "./dashboard.css";
+@import "./tables.css";
+@import "./dialogs.css";

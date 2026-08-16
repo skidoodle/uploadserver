@@ -1,0 +1,101 @@
+@import "./variables.css";
+
+html {
+	overscroll-behavior: none;
+	overscroll-behavior-y: none;
+}
+
+body {
+	font-family: system-ui, -apple-system, sans-serif;
+	max-width: 1060px;
+	margin: 2rem auto 3rem;
+	padding: 0 1rem;
+	line-height: 1.5;
+	background: var(--bg);
+	color: var(--fg);
+	overscroll-behavior: none;
+	overscroll-behavior-y: none;
+}
+
+a {
+	color: var(--fg-muted);
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+a:hover {
+	color: var(--fg);
+	text-decoration: underline;
+}
+
+h1 {
+	font-size: 1.25rem;
+	margin: 0 0 0.25rem;
+}
+
+.mono,
+code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+code {
+	background: var(--code-bg);
+	padding: 0.1rem 0.35rem;
+	border-radius: 4px;
+}
+
+.id-link {
+	color: inherit;
+	text-decoration: none;
+
+	&:hover code {
+		text-decoration: underline;
+		color: var(--fg);
+	}
+}
+
+.dim {
+	color: var(--fg-muted);
+}
+
+#msg {
+	min-height: 1.2em;
+	color: var(--fg-muted);
+}
+
+.notice {
+	display: block;
+	padding: 0.45rem 0.75rem;
+	margin: 0.4rem 0 0.8rem;
+	border: 1px solid var(--success-border);
+	border-radius: 6px;
+	background: var(--success-bg);
+	font-size: 0.85rem;
+	color: var(--success-fg);
+}
+
+.purge-banner {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	padding: 0.45rem 0.75rem;
+	margin: 0.4rem 0 0.8rem;
+	border: 1px solid var(--danger-border);
+	border-radius: 6px;
+	background: var(--danger-hover-bg);
+	font-size: 0.85rem;
+	color: var(--fg);
+
+	form {
+		margin: 0;
+	}
+
+	.act {
+		cursor: pointer;
+	}
+}
+
+.err {
+	color: var(--danger-color);
+}

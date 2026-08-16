@@ -1,0 +1,95 @@
+@import "./variables.css";
+
+.csel {
+	position: relative;
+	display: inline-block;
+	min-width: 9.5rem;
+	box-sizing: border-box;
+
+	.csel-btn {
+		font: inherit;
+		padding: 0.45rem 0.6rem;
+		padding-right: 2rem;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		background: var(--bg-surface);
+		color: var(--fg-field);
+		cursor: pointer;
+		width: 100%;
+		text-align: left;
+		position: relative;
+
+		&::after {
+			content: "";
+			position: absolute;
+			right: 0.65rem;
+			top: 50%;
+			transform: translateY(-50%);
+			width: 0.72em;
+			height: 0.72em;
+			background:
+				url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 6l5 5 5-5" fill="none" stroke="%23888" stroke-width="2"/></svg>')
+				no-repeat center / contain;
+		}
+
+		&:focus-visible {
+			outline: 2px solid var(--focus-ring);
+			outline-offset: 1px;
+		}
+	}
+
+	.csel-opts {
+		display: none;
+		position: absolute;
+		top: 100%;
+		left: 0;
+		right: 0;
+		margin-top: 2px;
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		background: var(--bg-surface);
+		color: var(--fg-field);
+		z-index: 10;
+		overflow: hidden;
+		box-shadow: var(--shadow-dropdown);
+	}
+
+	&.open .csel-opts {
+		display: block;
+	}
+
+	.csel-opt {
+		padding: 0.45rem 0.6rem;
+		cursor: pointer;
+		font: inherit;
+
+		&:hover {
+			background: var(--hover-bg);
+		}
+
+		&.active {
+			background: var(--active-bg);
+			font-weight: 600;
+		}
+
+		& + .csel-opt {
+			border-top: 1px solid var(--border-color-opts);
+		}
+	}
+}
+
+.lim-grid .csel,
+label .csel {
+	width: 100%;
+}
+
+.lim-grid .csel-btn {
+	padding: 0.35rem 0.5rem;
+	padding-right: 1.8rem;
+	font-size: 0.85rem;
+	box-sizing: border-box;
+}
+
+.lim-grid .dlg-label {
+	margin-bottom: 0;
+}

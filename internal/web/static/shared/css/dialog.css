@@ -1,0 +1,59 @@
+@import "./variables.css";
+
+html.modal-open,
+body.modal-open {
+	overflow: hidden;
+	overscroll-behavior: none;
+	touch-action: none;
+}
+
+dialog {
+	box-sizing: border-box;
+	border: 1px solid var(--border-color);
+	border-radius: 10px;
+	background: var(--bg);
+	color: var(--fg);
+	padding: 1.1rem 1.2rem;
+	width: min(92vw, 26rem);
+	max-width: calc(100vw - 1.5rem);
+	box-shadow: var(--shadow-modal);
+	overscroll-behavior: contain;
+	outline: none;
+	overflow: hidden;
+	margin: auto;
+
+	&::backdrop {
+		background: var(--backdrop-bg);
+		overscroll-behavior: contain;
+		touch-action: none;
+	}
+
+	p {
+		margin: 0 0 1rem;
+	}
+}
+
+.dlg-title {
+	margin-top: 0;
+	font-weight: 600;
+}
+
+.dlg-desc {
+	font-size: 0.85rem;
+	color: var(--fg-muted);
+	margin-bottom: 0.8rem;
+}
+
+.dlg-label {
+	display: flex;
+	flex-direction: column;
+	gap: 0.35rem;
+	margin-bottom: 0.8rem;
+	font-size: 0.85rem;
+	color: var(--fg-muted);
+
+	input {
+		width: 100%;
+		box-sizing: border-box;
+	}
+}

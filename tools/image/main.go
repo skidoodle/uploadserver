@@ -49,79 +49,72 @@ func main() {
 	heightFlag := flag.Int("height", 300, "Image height in pixels")
 	flag.Parse()
 
-	outputDir := *dirFlag
-	count := *countFlag
-	hexLen := *lenFlag
-	width, height := *widthFlag, *heightFlag
-
-	cleanOutputDir := filepath.Clean(outputDir)
-	if err := os.MkdirAll(cleanOutputDir, 0o750); err != nil {
-		fmt.Fprintf(os.Stderr, "Error creating directory %s: %v\n", cleanOutputDir, err)
+	targetDir := *dirFlag
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Error creating output directory: %v\n", err)
 		os.Exit(1)
 	}
 
+	fmt.Printf("Generating %d mock test images in '%s'...\n", *countFlag, targetDir)
 	start := time.Now()
-	fmt.Printf("Generating %d test image(s) in %q (hex length: %d)...\n", count, cleanOutputDir, hexLen)
 
-	numWorkers := min(count, 16)
-
-	jobs := make(chan int, count)
 	var wg sync.WaitGroup
-	var createdCount atomic.Int64
+	var completed atomic.Int64
+	numWorkers := 8
+	jobs := make(chan int, *countFlag)
 
 	for range numWorkers {
 		wg.Go(func() {
-
 			for range jobs {
-				img := image.NewRGBA(image.Rect(0, 0, width, height))
+				name := randomHex(*lenFlag)
 
-				var rBuf [4]byte
-				_, _ = rand.Read(rBuf[:])
-				fillColor := color.RGBA{
-					R: rBuf[0],
-					G: rBuf[1],
-					B: rBuf[2],
-					A: 255,
+				var chosenExt string
+				if *extFlag == "random" {
+					b := make([]byte, 1)
+					_, _ = rand.Read(b)
+					chosenExt = commonExts[int(b[0])%len(commonExts)]
+				} else {
+					chosenExt = strings.ToLower(*extFlag)
 				}
 
-				for x := range width {
-					for y := range height {
-						img.Set(x, y, fillColor)
+				filename := fmt.Sprintf("%s.%s", name, chosenExt)
+				filePath := filepath.Join(targetDir, filename)
+
+				img := image.NewRGBA(image.Rect(0, 0, *widthFlag, *heightFlag))
+				b := make([]byte, 3)
+				_, _ = rand.Read(b)
+				c := color.RGBA{R: b[0], G: b[1], B: b[2], A: 255}
+
+				for y := 0; y < *heightFlag; y++ {
+					for x := 0; x < *widthFlag; x++ {
+						img.Set(x, y, c)
 					}
 				}
 
-				ext := strings.ToLower(strings.TrimPrefix(*extFlag, "."))
-				if ext == "random" || ext == "" {
-					ext = commonExts[int(rBuf[3])%len(commonExts)]
-				}
-
-				baseName := randomHex(hexLen)
-				fileName := filepath.Join(cleanOutputDir, filepath.Base(baseName+"."+ext))
-
-				file, err := os.Create(fileName) // #nosec G304 -- Test helper creating mock files in cleaned output dir
+				f, err := os.Create(filePath)
 				if err != nil {
+					fmt.Fprintf(os.Stderr, "Failed to create %s: %v\n", filePath, err)
 					continue
 				}
 
-				switch ext {
+				switch chosenExt {
 				case "png":
-					_ = png.Encode(file, img)
+					_ = png.Encode(f, img)
 				default:
-					_ = jpeg.Encode(file, img, &jpeg.Options{Quality: 80})
+					_ = jpeg.Encode(f, img, &jpeg.Options{Quality: 80})
 				}
-				_ = file.Close()
-				createdCount.Add(1)
+				_ = f.Close()
+
+				completed.Add(1)
 			}
 		})
 	}
 
-	for i := 1; i <= count; i++ {
+	for i := 0; i < *countFlag; i++ {
 		jobs <- i
 	}
 	close(jobs)
 
 	wg.Wait()
-
-	fmt.Printf("Done! Generated %d files in %v.\n", createdCount.Load(), time.Since(start).Round(time.Millisecond))
-	fmt.Printf("Run 'uploadserver scan' to find and import these untracked files.\n")
+	fmt.Printf("Done! Generated %d files in %v.\n", completed.Load(), time.Since(start).Round(time.Millisecond))
 }

@@ -75,52 +75,52 @@ func TestAllServerRoutes(t *testing.T) {
 			unauthExpectedStatus: http.StatusNotFound,
 			authExpectedStatus:   http.StatusNotFound,
 		},
-		// 4. Public Static Asset: GET /_/login.css
+		// 4. Public Static Asset: GET /_/login/css/login.bundle.css
 		{
-			name:                 "GET /_/login.css",
+			name:                 "GET /_/login/css/login.bundle.css",
 			method:               "GET",
-			path:                 "/_/login.css",
+			path:                 "/_/login/css/login.bundle.css",
 			unauthExpectedStatus: http.StatusOK,
 			authExpectedStatus:   http.StatusOK,
 		},
-		// 5. Public Static Asset: GET /_/login.js
+		// 5. Public Static Asset: GET /_/login/js/login.bundle.js
 		{
-			name:                 "GET /_/login.js",
+			name:                 "GET /_/login/js/login.bundle.js",
 			method:               "GET",
-			path:                 "/_/login.js",
+			path:                 "/_/login/js/login.bundle.js",
 			unauthExpectedStatus: http.StatusOK,
 			authExpectedStatus:   http.StatusOK,
 		},
-		// 6. Gated Static Asset: GET /_/admin.css
+		// 6. Static Asset: GET /_/admin/css/admin.bundle.css
 		{
-			name:                 "GET /_/admin.css",
+			name:                 "GET /_/admin/css/admin.bundle.css",
 			method:               "GET",
-			path:                 "/_/admin.css",
-			unauthExpectedStatus: http.StatusNotFound, // gateAdminAsset returns 404 without admin session cookie
+			path:                 "/_/admin/css/admin.bundle.css",
+			unauthExpectedStatus: http.StatusOK,
 			authExpectedStatus:   http.StatusOK,
 		},
-		// 7. Gated Static Asset: GET /_/admin.js
+		// 7. Static Asset: GET /_/admin/js/admin.bundle.js
 		{
-			name:                 "GET /_/admin.js",
+			name:                 "GET /_/admin/js/admin.bundle.js",
 			method:               "GET",
-			path:                 "/_/admin.js",
-			unauthExpectedStatus: http.StatusNotFound,
+			path:                 "/_/admin/js/admin.bundle.js",
+			unauthExpectedStatus: http.StatusOK,
 			authExpectedStatus:   http.StatusOK,
 		},
-		// 8. Gated Static Asset: GET /_/uploads.css
+		// 8. Static Asset: GET /_/uploads/css/uploads.bundle.css
 		{
-			name:                 "GET /_/uploads.css",
+			name:                 "GET /_/uploads/css/uploads.bundle.css",
 			method:               "GET",
-			path:                 "/_/uploads.css",
-			unauthExpectedStatus: http.StatusNotFound,
+			path:                 "/_/uploads/css/uploads.bundle.css",
+			unauthExpectedStatus: http.StatusOK,
 			authExpectedStatus:   http.StatusOK,
 		},
-		// 9. Gated Static Asset: GET /_/uploads.js
+		// 9. Static Asset: GET /_/uploads/js/uploads.bundle.js
 		{
-			name:                 "GET /_/uploads.js",
+			name:                 "GET /_/uploads/js/uploads.bundle.js",
 			method:               "GET",
-			path:                 "/_/uploads.js",
-			unauthExpectedStatus: http.StatusNotFound,
+			path:                 "/_/uploads/js/uploads.bundle.js",
+			unauthExpectedStatus: http.StatusOK,
 			authExpectedStatus:   http.StatusOK,
 		},
 		// 10. Admin Page: GET /{$}
@@ -442,8 +442,8 @@ func TestServerRoutesDisabledAdmin(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"GET", "/_/login.css"},
-		{"GET", "/_/admin.css"},
+		{"GET", "/_/login/css/login.css"},
+		{"GET", "/_/admin/css/admin.css"},
 		{"POST", "/_/login"},
 		{"GET", "/_/api/tokens"},
 		{"GET", "/_/users"},

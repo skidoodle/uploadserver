@@ -1,0 +1,107 @@
+@import "./variables.css";
+
+input {
+	font: inherit;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--border-color);
+	border-radius: 6px;
+	background: var(--bg-surface);
+	color: var(--fg-field);
+	line-height: inherit;
+	box-sizing: border-box;
+
+	&:focus {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 1px;
+	}
+
+	&:disabled {
+		opacity: 0.55;
+		cursor: default;
+		filter: none;
+	}
+
+	&.invalid {
+		border-color: var(--danger-color);
+
+		&:focus {
+			outline: 2px solid var(--danger-color);
+		}
+	}
+}
+
+select {
+	font: inherit;
+	font-size: 0.85rem;
+	padding: 0.45rem 0.6rem;
+	padding-right: 2rem;
+	border: 1px solid var(--border-color);
+	border-radius: 6px;
+	background:
+		var(--bg-surface)
+		url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 6l5 5 5-5" fill="none" stroke="%23888" stroke-width="2"/></svg>')
+		no-repeat right 0.65rem center / 0.72em 0.72em;
+	color: var(--fg-field);
+	cursor: pointer;
+	appearance: none;
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	width: 100%;
+	box-sizing: border-box;
+
+	&:focus-visible {
+		outline: 2px solid var(--focus-ring);
+		outline-offset: 1px;
+	}
+}
+
+fieldset {
+	border: 1px solid var(--border-color-fieldset);
+	border-radius: 8px;
+	padding: 0.6rem 0.8rem 0.8rem;
+	margin: 0 0 1rem;
+}
+
+legend {
+	padding: 0 0.4rem;
+	color: var(--fg-muted);
+	font-size: 0.85rem;
+}
+
+.bar {
+	display: flex;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+.bar-end {
+	justify-content: flex-end;
+}
+
+.srow {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+	flex-wrap: wrap;
+	margin-top: 0.45rem;
+}
+
+.form-inline {
+	display: inline;
+}
+
+.label-err,
+.quota-err {
+	min-height: 1.25rem;
+	margin: 0.2rem 0 0.5rem;
+	color: var(--danger-color);
+	font-size: 0.85rem;
+	line-height: 1.25rem;
+}
+
+.label-err[hidden],
+.quota-err:empty {
+	display: block;
+	visibility: hidden;
+}

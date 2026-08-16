@@ -1,0 +1,123 @@
+@import "../../shared/css/variables.css";
+
+.quota-details {
+	border: 1px solid var(--border-color-fieldset);
+	border-radius: 8px;
+	margin: 0 0 1rem;
+	padding: 0 0.8rem;
+}
+
+.quota-details > summary {
+	display: flex;
+	align-items: baseline;
+	gap: 0.6rem;
+	padding: 0.6rem 0.2rem;
+	cursor: pointer;
+	list-style: none;
+	color: var(--fg-muted);
+	font-size: 0.85rem;
+
+	&::-webkit-details-marker {
+		display: none;
+	}
+
+	&::after {
+		content: "";
+		margin-left: auto;
+		align-self: center;
+		width: 0.72em;
+		height: 0.72em;
+		background:
+			url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M3 6l5 5 5-5" fill="none" stroke="%23888" stroke-width="2"/></svg>')
+			no-repeat center / contain;
+		transition: transform 0.15s ease;
+	}
+}
+
+.quota-details[open] > summary {
+	border-bottom: 1px solid var(--border-color-fieldset);
+	margin-bottom: 0.6rem;
+
+	&::after {
+		transform: rotate(180deg);
+	}
+}
+
+.quota-details .q-sum {
+	color: var(--fg);
+}
+
+.quota-details > form {
+	padding: 0 0.2rem 0.6rem;
+}
+
+.lim-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 0.45rem 0.65rem;
+	margin: 0 0 0.5rem;
+
+	label,
+	.policy-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.2rem;
+		font-size: 0.8rem;
+		color: var(--fg-muted);
+	}
+
+	input {
+		width: 100%;
+		box-sizing: border-box;
+		padding: 0.35rem 0.5rem;
+		font-size: 0.85rem;
+	}
+}
+
+.exempt .lim-grid {
+	opacity: 0.5;
+}
+
+.policy-heading {
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--fg-muted);
+	margin: 0.4rem 0 0.5rem;
+}
+
+.chk-label {
+	grid-column: 1 / -1;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 0.4rem;
+	cursor: pointer;
+
+	input[type="checkbox"] {
+		width: auto;
+		margin: 0;
+	}
+}
+
+.lim-hint {
+	font-size: 0.78rem;
+	line-height: 1.25;
+	margin: 0 0 0.5rem;
+}
+
+.bar .lim-hint {
+	margin: 0;
+}
+
+.lim-check {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	font-size: 0.82rem;
+	margin: 0 0 0.35rem;
+
+	input {
+		width: auto;
+		margin: 0;
+	}
+}

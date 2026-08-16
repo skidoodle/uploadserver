@@ -1,0 +1,115 @@
+.lightbox-pdf {
+	width: 100%;
+	height: 100%;
+	border: none;
+	border-radius: 6px;
+	background: var(--viewer-bg);
+	color-scheme: dark light;
+}
+
+.lightbox-font-box {
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	border-radius: 6px;
+	background: var(--bg-surface);
+	border: 1px solid var(--border-color-opts);
+	overflow: hidden;
+}
+
+.font-preview-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0.6rem 1rem;
+	background: var(--bg-surface);
+	border-bottom: 1px solid var(--border-color-table);
+	flex-shrink: 0;
+	min-height: 2.2rem;
+}
+
+.font-family-name {
+	font-weight: 600;
+	font-size: 0.9rem;
+	color: var(--fg);
+}
+
+.font-format-badge {
+	padding: 0.15rem 0.45rem;
+	border-radius: 4px;
+	font-size: 0.72rem;
+	font-weight: 700;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	background: var(--code-bg);
+	border: 1px solid var(--border-color-opts);
+	color: var(--fg-muted);
+}
+
+.font-sample-scroll {
+	flex: 1 1 0%;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 1.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+	user-select: text;
+	-webkit-user-select: text;
+	box-sizing: border-box;
+	scrollbar-width: thin;
+	scrollbar-color: var(--scrollbar-track-color) transparent;
+}
+
+.font-sample-scroll::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+.font-sample-scroll::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.font-sample-scroll::-webkit-scrollbar-thumb {
+	background: var(--scrollbar-thumb);
+	border-radius: 4px;
+}
+
+.font-sample-scroll::-webkit-scrollbar-thumb:hover {
+	background: var(--scrollbar-thumb-hover);
+}
+
+.font-sample-alphabet {
+	font-size: 1.05rem;
+	line-height: 1.6;
+	opacity: 0.75;
+	letter-spacing: 0.05em;
+	border-bottom: 1px solid var(--border-color-opts);
+	padding-bottom: 1.25rem;
+}
+
+.font-sample-headline {
+	font-size: 2rem;
+	line-height: 1.25;
+	font-weight: 500;
+	color: var(--fg);
+}
+
+.font-sample-paragraph {
+	font-size: 1rem;
+	line-height: 1.6;
+	opacity: 0.9;
+	color: var(--fg);
+}
+
+@media (max-width: 768px) {
+	.font-sample-scroll {
+		padding: 1rem 0.75rem;
+		gap: 1rem;
+	}
+
+	.font-sample-headline {
+		font-size: 1.4rem;
+	}
+}

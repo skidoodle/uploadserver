@@ -34,14 +34,7 @@ func (s *server) routes() http.Handler {
 		if err != nil {
 			panic("static sub-fs: " + err.Error())
 		}
-		assets := http.FileServer(http.FS(sub))
-		gatedAssets := s.gateAdminAsset(assets)
-		mux.Handle("GET /_/login.css", http.StripPrefix("/_/", assets))
-		mux.Handle("GET /_/login.js", http.StripPrefix("/_/", assets))
-		mux.Handle("GET /_/admin.css", http.StripPrefix("/_/", gatedAssets))
-		mux.Handle("GET /_/admin.js", http.StripPrefix("/_/", gatedAssets))
-		mux.Handle("GET /_/uploads.css", http.StripPrefix("/_/", gatedAssets))
-		mux.Handle("GET /_/uploads.js", http.StripPrefix("/_/", gatedAssets))
+		mux.Handle("GET /_/", http.StripPrefix("/_/", http.FileServer(http.FS(sub))))
 
 		mux.HandleFunc("GET /{$}", s.handleAdminPage)
 		mux.HandleFunc("POST /_/login", s.handleAdminLogin)
@@ -132,23 +125,6 @@ func (s *server) validateSessionCookie(c *http.Cookie) (internal.TokenRecord, bo
 	return s.store.Authenticate(c.Value)
 }
 
-// gateAdminAsset serves a static asset only to a request carrying a valid admin
-// session cookie. Everyone else gets a 404, so the dashboard's CSS and JS aren't
-// discoverable without logging in.
-func (s *server) gateAdminAsset(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie(adminCookieName)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		if _, ok := s.validateSessionCookie(c); !ok {
-			http.NotFound(w, r)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
 
 // announce logs startup info, surfacing a freshly minted bootstrap token once.
 func (s *server) announce(secret string, created bool) {

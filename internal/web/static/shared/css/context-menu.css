@@ -1,0 +1,92 @@
+@import "./variables.css";
+
+.ctx {
+	position: relative;
+	display: inline-block;
+}
+
+.ctx-trigger {
+	background: none;
+	border: 1px solid transparent;
+	color: var(--fg-muted);
+	font-size: 1.2rem;
+	padding: 0.15rem 0.45rem;
+	border-radius: 4px;
+	line-height: 1;
+	letter-spacing: 0.1em;
+	cursor: pointer;
+
+	&:hover {
+		background: var(--hover-bg);
+		border-color: var(--border-color);
+		color: var(--fg);
+		filter: none;
+	}
+}
+
+.ctx.open .ctx-trigger {
+	background: var(--active-bg);
+	border-color: var(--border-color);
+	color: var(--fg);
+}
+
+.ctx-menu {
+	display: none;
+	position: fixed;
+	margin-top: 4px;
+	min-width: 9.5rem;
+	border: 1px solid var(--border-color);
+	border-radius: 8px;
+	background: var(--bg-surface);
+	box-shadow: var(--shadow-menu);
+	z-index: 9999;
+	overflow: hidden;
+	padding: 0.25rem 0;
+}
+
+.ctx.open .ctx-menu {
+	display: block;
+}
+
+.ctx-item {
+	display: block;
+	width: 100%;
+	padding: 0.45rem 0.75rem;
+	border: none;
+	border-radius: 0;
+	background: none;
+	color: var(--fg);
+	font: inherit;
+	font-size: 0.85rem;
+	text-align: left;
+	cursor: pointer;
+	text-decoration: none;
+	box-sizing: border-box;
+
+	&:hover {
+		background: var(--hover-bg);
+		filter: none;
+	}
+}
+
+a.ctx-item {
+	color: var(--fg);
+}
+
+.ctx-danger {
+	color: var(--danger-color);
+
+	&:hover {
+		background: var(--danger-hover-bg);
+	}
+}
+
+.ctx-sep {
+	height: 1px;
+	background: var(--border-color-opts);
+	margin: 0.25rem 0;
+}
+
+.ctx-form {
+	display: contents;
+}

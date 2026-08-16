@@ -1,0 +1,102 @@
+@import "../../shared/css/variables.css";
+
+html {
+	overscroll-behavior: none;
+	overscroll-behavior-y: none;
+}
+
+body {
+	font-family: system-ui, -apple-system, sans-serif;
+	max-width: 1060px;
+	margin: 2rem auto;
+	padding: 0 1rem;
+	line-height: 1.5;
+	background: var(--bg);
+	color: var(--fg);
+}
+
+h1 {
+	font-size: 1.25rem;
+	margin: 0 0 0.25rem;
+}
+
+input,
+button {
+	font: inherit;
+	padding: 0.45rem 0.6rem;
+	border: 1px solid var(--border-color);
+	border-radius: 6px;
+	background: var(--bg-surface);
+	color: var(--fg-field);
+}
+
+input:focus {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 1px;
+}
+
+button {
+	cursor: pointer;
+	background: var(--bg-elevated);
+	color: var(--fg-btn);
+}
+
+button:hover {
+	filter: brightness(1.12);
+}
+
+button:active {
+	filter: brightness(0.95);
+}
+
+button:focus-visible {
+	outline: 2px solid var(--focus-ring);
+	outline-offset: 1px;
+}
+
+fieldset {
+	border: 1px solid var(--border-color-fieldset);
+	border-radius: 8px;
+	padding: 0.6rem 0.8rem 0.8rem;
+	margin: 0 0 1rem;
+}
+
+legend {
+	padding: 0 0.4rem;
+	color: var(--fg-muted);
+	font-size: 0.85rem;
+}
+
+.bar {
+	display: flex;
+	gap: 0.5rem;
+	flex-wrap: wrap;
+	align-items: center;
+}
+
+#msg {
+	min-height: 1.2em;
+	color: var(--fg-muted);
+}
+
+.err {
+	color: var(--danger-color);
+}
+
+@media (max-width: 768px) {
+	body {
+		margin: 1rem auto;
+		padding: 0 0.75rem;
+	}
+
+	.bar {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.bar input,
+	.bar button {
+		width: 100%;
+		box-sizing: border-box;
+	}
+}

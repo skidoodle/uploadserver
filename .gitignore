@@ -8,3 +8,5 @@ tokens.json
 .DS_Store
 *.swp
 .env
+*.bundle.js
+*.bundle.css

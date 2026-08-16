@@ -1,0 +1,28 @@
+@import "../../shared/css/variables.css";
+
+#renamedlg,
+#giveawaydlg {
+	box-sizing: border-box;
+	width: min(92vw, 24rem);
+	max-width: calc(100vw - 1.5rem);
+}
+
+#renamedlg .dlg-label {
+	margin-bottom: 0.4rem;
+}
+
+#limdlg {
+	box-sizing: border-box;
+	width: min(94vw, 32rem);
+	max-width: calc(100vw - 1.5rem);
+	padding: 1rem 1.2rem;
+	overflow: hidden;
+
+	p {
+		margin: 0 0 0.6rem;
+	}
+}
+
+#limdlg .bar-end button {
+	flex: 1;
+}

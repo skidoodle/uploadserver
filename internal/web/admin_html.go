@@ -1,5 +1,7 @@
 package web
 
+//go:generate go run ../../tools/bundle
+
 import (
 	"bytes"
 	"embed"
@@ -17,25 +19,25 @@ import (
 	"golang.org/x/net/html"
 )
 
-//go:embed static/admin.gohtml
+//go:embed static/admin/admin.gohtml
 var adminHTML string
 
-//go:embed static/login.gohtml
+//go:embed static/login/login.gohtml
 var loginHTML string
 
-//go:embed static/dashboard.gohtml
+//go:embed static/admin/dashboard.gohtml
 var dashboardHTML string
 
-//go:embed static/uploads.gohtml
+//go:embed static/uploads/uploads.gohtml
 var uploadsHTML string
 
-//go:embed static/users.gohtml
+//go:embed static/admin/users.gohtml
 var usersHTML string
 
-//go:embed static/user_profile.gohtml
+//go:embed static/admin/user_profile.gohtml
 var userProfileHTML string
 
-//go:embed static/login.css static/login.js static/admin.css static/admin.js static/uploads.css static/uploads.js
+//go:embed static/*
 var staticFS embed.FS
 
 // uploadsPageData is the template data for the per-token uploads page.

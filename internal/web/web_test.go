@@ -468,10 +468,35 @@ func TestGlobalQuotaAndBypass(t *testing.T) {
 }
 
 func TestStaticAssets(t *testing.T) {
-	_, h, admin := newTestServer(t)
+	_, h, _ := newTestServer(t)
 
-	// Login assets are public.
-	for _, path := range []string{"/_/login.css", "/_/login.js"} {
+	allAssets := []string{
+		"/_/login/css/login.css", "/_/login/js/login.js",
+		"/_/login/css/login.bundle.css", "/_/login/js/login.bundle.js",
+		"/_/admin/css/admin.css", "/_/admin/js/admin.js",
+		"/_/admin/css/admin.bundle.css", "/_/admin/js/admin.bundle.js",
+		"/_/uploads/css/uploads.css", "/_/uploads/js/uploads.js",
+		"/_/uploads/css/uploads.bundle.css", "/_/uploads/js/uploads.bundle.js",
+		"/_/shared/css/variables.css", "/_/shared/css/base.css",
+		"/_/shared/css/buttons.css", "/_/shared/css/forms.css",
+		"/_/shared/css/dialog.css", "/_/shared/css/dropdown.css",
+		"/_/shared/css/context-menu.css", "/_/shared/css/secret-card.css",
+		"/_/shared/css/toolbar.css",
+		"/_/admin/css/dashboard.css", "/_/admin/css/tables.css", "/_/admin/css/dialogs.css",
+		"/_/uploads/css/gallery.css", "/_/uploads/css/modal.css",
+		"/_/uploads/css/player.css", "/_/uploads/css/text-viewer.css", "/_/uploads/css/font-viewer.css",
+		"/_/shared/js/dom.js", "/_/shared/js/dialog.js", "/_/shared/js/dropdown.js",
+		"/_/shared/js/context-menu.js", "/_/shared/js/utils.js",
+		"/_/admin/js/secret-card.js", "/_/admin/js/quota-validator.js",
+		"/_/admin/js/dialogs/delete-dialog.js", "/_/admin/js/dialogs/purge-dialog.js",
+		"/_/admin/js/dialogs/limits-dialog.js", "/_/admin/js/dialogs/rename-dialog.js",
+		"/_/admin/js/dialogs/role-dialog.js", "/_/admin/js/dialogs/file-dialog.js",
+		"/_/uploads/js/player.js", "/_/uploads/js/text-viewer.js",
+		"/_/uploads/js/font-viewer.js", "/_/uploads/js/gallery.js",
+		"/_/uploads/js/media-modal.js",
+	}
+
+	for _, path := range allAssets {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
 		if rec.Code != http.StatusOK {
@@ -479,26 +504,6 @@ func TestStaticAssets(t *testing.T) {
 		}
 		if rec.Body.Len() == 0 {
 			t.Errorf("GET %s: empty body", path)
-		}
-	}
-
-	// Dashboard assets are hidden from anyone without an admin session.
-	for _, path := range []string{"/_/admin.css", "/_/admin.js"} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest("GET", path, nil))
-		if rec.Code != http.StatusNotFound {
-			t.Errorf("GET %s unauthenticated: status %d, want 404", path, rec.Code)
-		}
-
-		authed := httptest.NewRequest("GET", path, nil)
-		authed.AddCookie(&http.Cookie{Name: adminCookieName, Value: admin})
-		rec = httptest.NewRecorder()
-		h.ServeHTTP(rec, authed)
-		if rec.Code != http.StatusOK {
-			t.Errorf("GET %s with admin cookie: status %d, want 200", path, rec.Code)
-		}
-		if rec.Body.Len() == 0 {
-			t.Errorf("GET %s with admin cookie: empty body", path)
 		}
 	}
 }
@@ -510,10 +515,10 @@ func TestAdminPageReferencesScopedAssets(t *testing.T) {
 	out := httptest.NewRecorder()
 	h.ServeHTTP(out, httptest.NewRequest("GET", "/", nil))
 	body := out.Body.String()
-	if !strings.Contains(body, "/_/login.css") || !strings.Contains(body, "/_/login.js") {
+	if !strings.Contains(body, "/_/login/css/login.bundle.css") || !strings.Contains(body, "/_/login/js/login.bundle.js") {
 		t.Errorf("login page is missing the login assets")
 	}
-	if strings.Contains(body, "/_/admin.css") || strings.Contains(body, "/_/admin.js") {
+	if strings.Contains(body, "/_/admin/css/admin.bundle.css") || strings.Contains(body, "/_/admin/js/admin.bundle.js") {
 		t.Errorf("login page leaks dashboard asset references")
 	}
 
@@ -523,10 +528,10 @@ func TestAdminPageReferencesScopedAssets(t *testing.T) {
 	in := httptest.NewRecorder()
 	h.ServeHTTP(in, req)
 	body = in.Body.String()
-	if !strings.Contains(body, "/_/admin.css") || !strings.Contains(body, "/_/admin.js") {
+	if !strings.Contains(body, "/_/admin/css/admin.bundle.css") || !strings.Contains(body, "/_/admin/js/admin.bundle.js") {
 		t.Errorf("dashboard is missing the dashboard assets")
 	}
-	if strings.Contains(body, "/_/login.css") || strings.Contains(body, "/_/login.js") {
+	if strings.Contains(body, "/_/login/css/login.bundle.css") || strings.Contains(body, "/_/login/js/login.bundle.js") {
 		t.Errorf("dashboard leaks login asset references")
 	}
 }
@@ -849,50 +854,50 @@ func TestTokenRename(t *testing.T) {
 func TestGatedAssets(t *testing.T) {
 	srv, h, adminSecret := newTestServer(t)
 
-	// Unauthenticated request to /_/uploads.css => 404
-	req := httptest.NewRequest("GET", "/_/uploads.css", nil)
+	// Public request to /_/uploads/css/uploads.bundle.css => 200 OK
+	req := httptest.NewRequest("GET", "/_/uploads/css/uploads.bundle.css", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("unauth /_/uploads.css status = %d, want 404", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unauth /_/uploads/css/uploads.bundle.css status = %d, want 200", rec.Code)
 	}
 
-	// Authenticated request to /_/uploads.css => 200 OK
-	reqAuth := httptest.NewRequest("GET", "/_/uploads.css", nil)
+	// Authenticated request to /_/uploads/css/uploads.bundle.css => 200 OK
+	reqAuth := httptest.NewRequest("GET", "/_/uploads/css/uploads.bundle.css", nil)
 	reqAuth.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
 	recAuth := httptest.NewRecorder()
 	h.ServeHTTP(recAuth, reqAuth)
 	if recAuth.Code != http.StatusOK {
-		t.Fatalf("auth /_/uploads.css status = %d, want 200", recAuth.Code)
+		t.Fatalf("auth /_/uploads/css/uploads.bundle.css status = %d, want 200", recAuth.Code)
 	}
 
-	// Unauthenticated request to /_/uploads.js => 404
-	reqJS := httptest.NewRequest("GET", "/_/uploads.js", nil)
+	// Public request to /_/uploads/js/uploads.bundle.js => 200 OK
+	reqJS := httptest.NewRequest("GET", "/_/uploads/js/uploads.bundle.js", nil)
 	recJS := httptest.NewRecorder()
 	h.ServeHTTP(recJS, reqJS)
-	if recJS.Code != http.StatusNotFound {
-		t.Fatalf("unauth /_/uploads.js status = %d, want 404", recJS.Code)
+	if recJS.Code != http.StatusOK {
+		t.Fatalf("unauth /_/uploads/js/uploads.bundle.js status = %d, want 200", recJS.Code)
 	}
 
-	// Authenticated request to /_/uploads.js => 200 OK
-	reqJSAuth := httptest.NewRequest("GET", "/_/uploads.js", nil)
+	// Authenticated request to /_/uploads/js/uploads.bundle.js => 200 OK
+	reqJSAuth := httptest.NewRequest("GET", "/_/uploads/js/uploads.bundle.js", nil)
 	reqJSAuth.AddCookie(&http.Cookie{Name: adminCookieName, Value: adminSecret})
 	recJSAuth := httptest.NewRecorder()
 	h.ServeHTTP(recJSAuth, reqJSAuth)
 	if recJSAuth.Code != http.StatusOK {
-		t.Fatalf("auth /_/uploads.js status = %d, want 200", recJSAuth.Code)
+		t.Fatalf("auth /_/uploads/js/uploads.bundle.js status = %d, want 200", recJSAuth.Code)
 	}
 
 	// Request with ephemeral session token => 200 OK and text/css MIME type
 	adminRec, _ := srv.store.Authenticate(adminSecret)
 	sessID := srv.sessions.Create(adminRec.ID, adminRec.Role, time.Hour)
 
-	reqCSS := httptest.NewRequest("GET", "/_/admin.css", nil)
+	reqCSS := httptest.NewRequest("GET", "/_/admin/css/admin.bundle.css", nil)
 	reqCSS.AddCookie(&http.Cookie{Name: adminCookieName, Value: sessID})
 	recCSS := httptest.NewRecorder()
 	h.ServeHTTP(recCSS, reqCSS)
 	if recCSS.Code != http.StatusOK {
-		t.Fatalf("session auth /_/admin.css status = %d, want 200", recCSS.Code)
+		t.Fatalf("session auth /_/admin/css/admin.bundle.css status = %d, want 200", recCSS.Code)
 	}
 	if !strings.Contains(recCSS.Header().Get("Content-Type"), "text/css") {
 		t.Errorf("expected text/css Content-Type, got %q", recCSS.Header().Get("Content-Type"))
