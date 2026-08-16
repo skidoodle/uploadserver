@@ -125,7 +125,6 @@ func (s *server) validateSessionCookie(c *http.Cookie) (internal.TokenRecord, bo
 	return s.store.Authenticate(c.Value)
 }
 
-
 // announce logs startup info, surfacing a freshly minted bootstrap token once.
 func (s *server) announce(secret string, created bool) {
 	if created {
