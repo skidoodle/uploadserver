@@ -26,6 +26,9 @@ jobs:
         with:
           go-version-file: "go.mod"
 
+      - name: Generate static bundles
+        run: go generate ./...
+
       - name: Format
         run: |
           go fmt ./...
@@ -113,6 +116,9 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
+
+      - name: Generate static bundles
+        run: go generate ./...
 
       - name: Install Syft
         uses: anchore/sbom-action/download-syft@v0

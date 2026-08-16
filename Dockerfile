@@ -9,7 +9,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download && go mod verify
 
 COPY main.go ./
+COPY tools/ ./tools/
 COPY internal/ ./internal/
+
+RUN go generate ./...
 
 ARG TARGETOS
 ARG TARGETARCH

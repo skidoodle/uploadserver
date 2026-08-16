@@ -3,6 +3,7 @@ project_name: uploadserver
 
 before:
   hooks:
+    - go generate ./...
     - go mod tidy
 
 builds:
